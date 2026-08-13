@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.venv/
+venv/
+
+# 大文件：数据 / 权重 / 图片 / 渲染输出（只推代码脚本）
+*.mat
+*.npy
+*.npz
+*.pth
+*.pt
+*.safetensors
+*.onnx
+*.ckpt
+*.png
+*.jpg
+*.jpeg
+*.bmp
+*.gif
+*.tif
+*.tiff
+*.exr
+*.hdr
+*.xlsx
+*.xls
+*.csv
+*.zip
+*.tar
+*.gz
+*.7z
+*.rar
+
+# 数据与输出目录
+data/
+output/
+outputs/
+results/
+render_output/
+stimuli/
