@@ -40,3 +40,9 @@ outputs/
 results/
 render_output/
 stimuli/
+
+# 临时脚本与中转文件（用完即删，禁止提交）
+_*.py
+!_cmf_data.py
+.gitmessage.txt
+*.msg_dump.txt
