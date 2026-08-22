@@ -1,0 +1,6 @@
+# 只提交代码脚本 .py / .m，其余一律忽略（含 rendered* 输出、xlsx、png、mat、jpg、log、pyc 等）
+*.*
+!*.py
+!*.m
+!.gitignore
+__pycache__/
