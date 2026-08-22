@@ -40,12 +40,16 @@ def read_bull(bull, if_wei=True):
         else:  # ndim == 2
             bull_reshaped = bull_float.reshape(sz[0] * sz[1], 1)
     else:
-        # MATLAB: 先 reshape 再 ./255（顺序与 if_wei 分支不同，需保留）
+        # MATLAB: reshape(bull,[N,ch])./255 —— bull 是 uint8，整数数组 ./ 标量
+        # 结果仍为 uint8，且四舍五入到最近整数。v/255 (v∈[0,255]) 恒不为 0.5，
+        # 故等价于 v<=127 -> 0, v>=128 -> 1（所有灰度 <=127 的像素判为"黑"）。
+        # numpy 的 /255.0 会提升为 float64（浮点除法），必须显式模拟 MATLAB 舍入。
         if bull.ndim == 3:
             bull_reshaped = bull.reshape(sz[0] * sz[1], sz[2]) / 255.0
         else:  # ndim == 2
             bull_reshaped = bull.reshape(sz[0] * sz[1], 1) / 255.0
-        bull_reshaped = bull_reshaped.astype(np.float64)
+        # MATLAB: double(bull_reshaped)（uint8 0/1 -> double 0/1）
+        bull_reshaped = np.round(bull_reshaped).astype(np.uint8).astype(np.float64)
 
     # MATLAB: all(bull_reshaped == 0, 2)
     logicalIndex = np.all(bull_reshaped == 0.0, axis=1)

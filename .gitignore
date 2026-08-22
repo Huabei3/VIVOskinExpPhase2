@@ -1,48 +1,6 @@
-# Python
+# 只提交代码脚本 .py / .m，其余一律忽略（含 rendered* 输出、xlsx、png、mat、jpg、log、pyc 等）
+*.*
+!*.py
+!*.m
+!.gitignore
 __pycache__/
-*.pyc
-*.pyo
-*.egg-info/
-.venv/
-venv/
-
-# 大文件：数据 / 权重 / 图片 / 渲染输出（只推代码脚本）
-*.mat
-*.npy
-*.npz
-*.pth
-*.pt
-*.safetensors
-*.onnx
-*.ckpt
-*.png
-*.jpg
-*.jpeg
-*.bmp
-*.gif
-*.tif
-*.tiff
-*.exr
-*.hdr
-*.xlsx
-*.xls
-*.csv
-*.zip
-*.tar
-*.gz
-*.7z
-*.rar
-
-# 数据与输出目录
-data/
-output/
-outputs/
-results/
-render_output/
-stimuli/
-
-# 临时脚本与中转文件（用完即删，禁止提交）
-_*.py
-!_cmf_data.py
-.gitmessage.txt
-*.msg_dump.txt
