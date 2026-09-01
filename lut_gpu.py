@@ -119,6 +119,10 @@ def lut3d_xyz2rgbKDitp1(
     # ---- 3) GPU KNN + 加权 ----
     if device == "auto":
         device = "cuda" if torch.cuda.is_available() else "cpu"
+    # CPU 内存自适应：cdist 分块 b x N x 8B，b=8192、N=27000 时 ~1.8GB 会爆，
+    # 本机无 CUDA（锚点验证走 CPU），自动降 chunk 保证可跑。
+    if device.startswith("cpu") and chunk > 512:
+        chunk = 512
     dev = torch.device(device)
     u_t = torch.from_numpy(unique_lab).to(dev)
     p_t = torch.from_numpy(P_labs).to(dev)

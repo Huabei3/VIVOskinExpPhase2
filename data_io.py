@@ -23,7 +23,7 @@ from typing import Any, Dict
 import numpy as np
 import pandas as pd
 import scipy.io as sio
-from PIL import Image
+import cv2
 
 
 # ---------------------------------------------------------------------------
@@ -34,9 +34,47 @@ def load_mat(path: str | Path) -> Dict[str, Any]:
 
     本项目所有 .mat 均为纯数值矩阵（非 struct/cell），scipy 直接返回 ndarray，
     无需做 0-d struct 拆包。含 `__function_workspace__` 等 MATLAB 内部字段也会被跳过。
+
+    支持 MATLAB v7.3 (HDF5) 文件：scipy 抛 NotImplementedError 时回退 h5py，
+    并按 MATLAB 列主序约定转置 2D 数值矩阵（v7.3 中 h5py 读出的 shape 行列是反的）。
+    实测：autoNhand_scaleoverLUT.mat 为 v7.3，average_lab_all(21,3)，h5py 视角 (3,21)。
     """
-    raw = sio.loadmat(str(path), squeeze_me=False, struct_as_record=True)
+    try:
+        raw = sio.loadmat(str(path), squeeze_me=False, struct_as_record=True)
+    except NotImplementedError:
+        raw = _load_mat_v73(path)
     return {k: v for k, v in raw.items() if not k.startswith("__")}
+
+
+def _load_mat_v73(path: str | Path) -> Dict[str, Any]:
+    """MATLAB v7.3 (HDF5) 回退读取。
+
+    - 数值矩阵：ndim>=2 一律 .T 转置（v7.3 以列主序存，h5py 读出 shape 与 MATLAB 相反）
+    - 引用对象（cell/struct）：沿 object-dtype 数组递归解引用后转置
+    """
+    import h5py
+
+    out: Dict[str, Any] = {}
+    with h5py.File(str(path), "r") as f:
+        for k in f.keys():
+            v = f[k]
+            if not isinstance(v, h5py.Dataset):
+                continue
+            data = v[()]
+            if isinstance(data, np.ndarray) and data.dtype == object:
+                arr = np.empty(data.shape, dtype=object)
+                for idx in np.ndindex(data.shape):
+                    item = data[idx]
+                    if isinstance(item, h5py.Reference):
+                        arr[idx] = f[item][()].T
+                    else:
+                        arr[idx] = item
+                out[k] = arr
+            elif isinstance(data, np.ndarray) and data.ndim >= 2:
+                out[k] = data.T
+            else:
+                out[k] = data
+    return out
 
 
 def _f64(a: Any) -> np.ndarray:
@@ -96,15 +134,20 @@ def load_points(path: str | Path) -> np.ndarray:
 # 图像
 # ---------------------------------------------------------------------------
 def imread(path: str | Path) -> np.ndarray:
-    """等价 MATLAB `imread`：返回 uint8。
+    """等价 MATLAB `imread`：返回 uint8（JPEG 解码与 MATLAB imread 一致, 用 OpenCV）。
 
-    - 灰度 jpg（mode 'L'）-> (H, W)
-    - 彩色 jpg（mode 'RGB'）-> (H, W, 3)
+    实测：cv2(libjpeg-turbo) 解码 == MATLAB imread；PIL 解码约 5% 像素差 1-18，
+    会导致 dE_max 等极值统计偏差 ~0.5，故统一用 cv2。
+
+    - 灰度 jpg -> (H, W)
+    - 彩色 jpg -> (H, W, 3) RGB
     """
-    im = Image.open(path)
-    if im.mode == "L":
-        return np.asarray(im)                      # uint8 (H,W)
-    return np.asarray(im.convert("RGB"))           # uint8 (H,W,3)
+    im = cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
+    if im is None:
+        raise FileNotFoundError(f'cv2 cannot read: {path}')
+    if im.ndim == 3:
+        im = cv2.cvtColor(im, cv2.COLOR_BGR2RGB)
+    return im
 
 
 def im2double(a: Any) -> np.ndarray:
