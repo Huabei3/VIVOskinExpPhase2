@@ -13,6 +13,14 @@ CT = [3000, 4000, 5000, 6000, 7000, 8000, 6500, ...
 % datai_file = '..\A_characterization\display_model\datai_ipv18_3.mat';
 % LUT 类型：phase1（默认，保持现有逻辑）或 phase2（使用 data_ipv30_phase2_3.mat）
 handle.LUT_type = "phase2";
+% 输出格式："jpg"（默认，与原逻辑一致）或 "png"（无损）
+handle.save_format = "png";
+% uni_mode: "True"=去重(uniquetol，默认)，"False"=不去重(逐行 KNN)
+handle.uni_mode = "False";
+% 是否去重：uni_mode="True" -> 去重(uni)，否则不去重(no_uni)
+if_uni = strcmp(handle.uni_mode, "True");
+% 是否启用 ./6 小图 resize（"先跑小图看问题"）：true=启用，false=关闭（默认）
+if_small = false;
 if strcmp(handle.LUT_type, "phase2")
     datai_file = '..\A_characterization\display_model\data_ipv30_phase2_3.mat';
 else
@@ -24,11 +32,14 @@ XYZw_LUT=LUT.XYZw;
 wd65_scaled=wd65./100.*XYZw_LUT(2);
 % load("render_range.mat","shift_range","db_range");
 %------------i--------------
-new_names = {'f04','f05','f06','m04','m05','m06',...
+% new_names = {'f04','f05','f06','m04','m05','m06',...
+%     'f01','f02','f03','m01','m02','m03',...
+%     'f07','f08','m07','m08',...
+%     'f09','f10','m09','m10'};
+new_names = {
     'f01','f02','f03','m01','m02','m03',...
     'f07','f08','m07','m08',...
     'f09','f10','m09','m10'};
-
 Dtype="full";
 iOr="i";
 for i_model=1:length(new_names)
@@ -64,6 +75,16 @@ for i_model=1:length(new_names)
         "labC_HD65");  
     
     save_folder=fullfile('rendered',char(handle.LUT_type),'i',lastPart);
+    % 输出目录与「是否 ./6」「是否去重」挂钩：
+    %   有 ./6 -> 加一级 small；有去重 -> 加一级 uni，否则 no_uni
+    if if_small
+        save_folder=fullfile(save_folder,'small');
+    end
+    if if_uni
+        save_folder=fullfile(save_folder,'uni');
+    else
+        save_folder=fullfile(save_folder,'no_uni');
+    end
 
     if ~exist(save_folder, 'dir')
         mkdir(save_folder);
@@ -77,7 +98,9 @@ for i_model=1:length(new_names)
         filename = fullfile(files(i).folder, files(i).name);      
         img0=imread(filename);
     %--------先跑小图看问题--------
-        % img0 = imresize(img0, [size(img0,1)./6, size(img0,2)./6]);
+        if if_small
+            img0 = imresize(img0, [size(img0,1)./6, size(img0,2)./6]);
+        end
     
         img=im2double(img0);
         [m,n,p]=size(img);
@@ -90,14 +113,18 @@ for i_model=1:length(new_names)
                 picname_check{i,1}=files(i).name(1:end-4);
                 picname_check{i,2}=dir_mask(i_mask).name(1:end-4);
                 bull=imread(strcat(dir_mask(i_mask).folder,'\',dir_mask(i_mask).name));
-                % bull = imresize(bull, [size(bull,1)./6, size(bull,2)./6]);%先跑小图看问题
+                if if_small
+                    bull = imresize(bull, [size(bull,1)./6, size(bull,2)./6]);%先跑小图看问题
+                end
                 break
             end
         end
         for i_mask=1:length(dir_mask_nosd)
             if strcmp(files(i).name(1:end-4),dir_mask_nosd(i_mask).name(1:end-4))
                 bull_nosd=imread(strcat(dir_mask_nosd(i_mask).folder,'\',dir_mask_nosd(i_mask).name));
-                % bull_nosd = imresize(bull_nosd, [size(bull_nosd,1)./6, size(bull_nosd,2)./6]);%先跑小图看问题
+                if if_small
+                    bull_nosd = imresize(bull_nosd, [size(bull_nosd,1)./6, size(bull_nosd,2)./6]);%先跑小图看问题
+                end
                 break
             end
         end
@@ -107,7 +134,9 @@ for i_model=1:length(new_names)
                 XYZ=load(fullfile(dir_XYZfile(i_xyz).folder,dir_XYZfile(i_xyz).name));
                 XYZ=XYZ.XYZ_cropped;
                 %------先跑小图看问题-------
-                % XYZ = imresize(XYZ, [size(XYZ,1)./6, size(XYZ,2)./6]);      
+                if if_small
+                    XYZ = imresize(XYZ, [size(XYZ,1)./6, size(XYZ,2)./6]);
+                end      
                 break
             end
         end
@@ -176,13 +205,24 @@ for i_model=1:length(new_names)
             %看是否已经有了
             search_name=strcat(files(i).name(1:end-4),'_',sprintf('%02d', i_points), ...
                 '[',num2str(dlab(1,1)),',' ,...
-                num2str(dlab(1,2)),',',num2str(dlab(1,3)),'].jpg');
+                num2str(dlab(1,2)),',',num2str(dlab(1,3)),'].',char(handle.save_format));
             dir_img_file=dir(fullfile(save_folder,search_name));
-            if ~isempty(dir_img_file)
+            % if ~isempty(dir_img_file)
+            %     continue
+            % end
+
+
+
+            % 保存 LUT 映射后 RGB outnew（便于逐像素对比）
+            outnew_file=fullfile(save_folder, strcat(search_name(1:end-4), "_outnew.mat"));
+
+            % png 模式：若已有 *_outnew.mat，直接导出 png 跳过渲染
+            if strcmp(handle.save_format, "png") && exist(outnew_file, 'file') == 2
+                S = load(outnew_file, 'outnew_img');
+                imwrite(S.outnew_img, fullfile(save_folder, search_name));
+                disp([search_name, ' exported from _outnew.mat (skip render)']);
                 continue
             end
-
-
 
             noFaceRGB_folder=fullfile(save_folder,"noFaceRGB");
             if ~exist(noFaceRGB_folder,"dir")
@@ -192,8 +232,9 @@ for i_model=1:length(new_names)
                 strcat(files(i).name(1:end-4),".mat"));
             % 保存 LUT 映射前中间变量 xyz2（与输出 jpg 同名 .mat）
             xyz2_file=fullfile(save_folder, strcat(search_name(1:end-4), ".mat"));
-            % 保存 LUT 映射后 RGB outnew（便于逐像素对比）
-            outnew_file=fullfile(save_folder, strcat(search_name(1:end-4), "_outnew.mat"));
+            % 保存 delta_Lab / lab2（调试用，与 Python 侧对齐）
+            delta_lab_file=fullfile(save_folder, strcat(search_name(1:end-4), "_delta_lab.mat"));
+            lab2_file=fullfile(save_folder, strcat(search_name(1:end-4), "_lab2.mat"));
 
             disp([lastPart,num2str(i_points),'/',num2str(endCenter),'of', ...
                 num2str(i),'/',num2str(numel(files)),' ',files(i).name,' begin']);
@@ -201,7 +242,8 @@ for i_model=1:length(new_names)
             %---------渲染-----------
             [out_rendering,dest_lab,bull_nosd]=...
                 img_AddRender_simp(img,bull,bull_nosd,'LUT',delta_Lab(i_points,:), ...
-                XYZ,noFaceRGB_file,if_wei,if_2mask, handle, xyz2_file, outnew_file);
+                XYZ,noFaceRGB_file,if_wei,if_2mask, handle, xyz2_file, outnew_file, ...
+                delta_lab_file, lab2_file);
             deltaE2000(dest_lab,dlab)
 
             % plot_pic_dE(out_rendering,lab2,bull,if_wei);
@@ -211,9 +253,7 @@ for i_model=1:length(new_names)
             disp([num2str(i_points),'/',num2str(endCenter),'of', ...
                 num2str(i),'/',num2str(numel(files)),' ',files(i).name,' was done']);
 
-            imwrite(out_rendering,fullfile(save_folder, ...
-                strcat(files(i).name(1:end-4),'_',sprintf('%02d', i_points),'[',num2str(dlab(1,1)),',' ,...
-                num2str(dlab(1,2)),',',num2str(dlab(1,3)),'].jpg')) );
+            imwrite(out_rendering,fullfile(save_folder, search_name));
             currentTime = datetime('now');   
             formattedTime = datestr(currentTime, 'yyyy-mm-dd HH:MM:SS');
             disp([files(i).name(1:end-4),'_',num2str(i_points),'finished: ', formattedTime]);

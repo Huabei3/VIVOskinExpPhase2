@@ -15,7 +15,7 @@
 % 用法：改下面参数后直接 Run。
 
 % ---------------- 模块 0：参数 ----------------
-mode  = 'app_test'; % 'local_test' | 'cloud_test' | 'app_test'(比较 Android drawable=phase2 与 rendered_2max=phase1, 每 model 一个 sheet)
+mode  = 'app_test'; % 'local_test' | 'cloud_test' | 'app_test'(比较 Android drawable=phase2 与 rendered_2max=phase1, 每 model 一个 sheet) | 'single_image_debug'(Python vs MATLAB 单图逐像素 dE2000)
 GROUP = 'all';        % 'all' | 'i' | 'rs'  (app_test 自动按目录判断, 此项忽略)
 SUBS  = {};           % 空=全部；例如 {'f04i'}  (app_test 按 model 名过滤)
 LIMIT = [];           % 空=不限；例如 2  (每 model 限前 N 张, 调试用)
@@ -66,6 +66,17 @@ fprintf('[info] phase1 cubeL=%d XYZw=[%.4f %.4f %.4f]\n', S1.cubeL, XYZw1);
 fprintf('[info] phase2 cubeL=%d XYZw=[%.4f %.4f %.4f]\n', S2.cubeL, XYZw2);
 fprintf('[info] wd65_scaled_p1=[%.4f %.4f %.4f]  wd65_scaled_p2=[%.4f %.4f %.4f]\n', ...
     wd65_1, wd65_2);
+
+% ---------------- 模块 3b：single_image_debug（单图 debug，提前返回）----------------
+if strcmp(mode, 'single_image_debug')
+    JPG_PY = fullfile(PROJ, 'I_render_stimuli', 'rendered_python', 'phase2', 'i', 'f01i', ...
+        'H3K_01[59.0378,23.8328,43.1617].jpg');
+    JPG_MT = fullfile(PROJ, 'I_render_stimuli', 'rendered', 'phase2', 'i', 'f01i', ...
+        'H3K_01[59.0378,23.8328,43.1617].jpg');
+    OUT_XLSX = fullfile(PROJ, 'I_render_stimuli', 'compare_phase12_single_image_debug.xlsx');
+    run_single_image_debug(JPG_PY, JPG_MT, DATAI_P2, wd65_2, MASK_ROOT, NO_WEI_I, NO_WEI_RS, OUT_XLSX);
+    return;
+end
 
 % ---------------- 模块 4：收集渲染文件 ----------------
 if strcmp(mode,'app_test')
@@ -467,4 +478,99 @@ function stimulus = parse_app_stimulus(stem, model)
     else
         stimulus = tok{1};
     end
+end
+
+function run_single_image_debug(jpg_python, jpg_matlab, DATAI_P2, wd65_2, MASK_ROOT, NO_WEI_I, NO_WEI_RS, OUT_XLSX)
+    % 单图 debug：Python 渲染 vs MATLAB 渲染（两者都是 phase2 产物）
+    % 两张图都用 phase2 LUT(DATAI_P2) -> XYZ -> xyz2lab(wd65_2) -> 逐像素 deltaE2000
+    % mask 读入后先 resize 到 1/6（ceil 对齐 Python 渲染的 _imresize_div）再用
+
+    % ---- 解析 stem / stimulus / lastPart ----
+    [~, stem, ~] = fileparts(jpg_python);
+    stimulus = parse_stimulus(stem);              % 'H3K'
+    [parent, ~, ~] = fileparts(jpg_python);       % ...\f01i
+    [~, lastPart, ~] = fileparts(parent);         % 'f01i'
+    if_wei = double(~(ismember(lastPart, NO_WEI_I) || ismember(lastPart, NO_WEI_RS)));
+
+    % ---- mask：读入 -> resize 到 1/6 ----
+    mask_file = find_mask_file(lastPart, stimulus, MASK_ROOT);
+    if isempty(mask_file)
+        error('mask not found: %s/%s', lastPart, stimulus);
+    end
+    bull = imread(mask_file);
+    mask_orig_size = size(bull);
+    bull = imresize(bull, [ceil(size(bull,1)/6), ceil(size(bull,2)/6)]);  % resize 到 1/6（ceil 对齐 Python 渲染）
+    [logicalIndex, bull_weight] = read_bull(bull, if_wei);
+    idx_keep = ~logicalIndex;
+
+    % ---- 读两张 jpg，做尺寸校验 ----
+    rgb_py = imread(jpg_python);
+    rgb_mt = imread(jpg_matlab);
+    if ~isequal(size(rgb_py), size(rgb_mt))
+        error('jpg 尺寸不一致: %s(%dx%d) vs %s(%dx%d)', ...
+            jpg_python, size(rgb_py,2), size(rgb_py,1), jpg_matlab, size(rgb_mt,2), size(rgb_mt,1));
+    end
+    if ~isequal([size(rgb_py,1) size(rgb_py,2)], [size(bull,1) size(bull,2)])
+        error('mask 1/6 尺寸(%dx%d) 与 jpg(%dx%d) 不一致', ...
+            size(bull,1), size(bull,2), size(rgb_py,1), size(rgb_py,2));
+    end
+    rgb_py_keep = double(reshape(rgb_py, [], 3));  rgb_py_keep = rgb_py_keep(idx_keep, :);
+    rgb_mt_keep = double(reshape(rgb_mt, [], 3));  rgb_mt_keep = rgb_mt_keep(idx_keep, :);
+
+    % ---- 两张图都用 phase2 LUT -> XYZ -> Lab ----
+    xyz_py = lut3d_rgb2xyz1(rgb_py_keep, DATAI_P2);
+    xyz_mt = lut3d_rgb2xyz1(rgb_mt_keep, DATAI_P2);
+    lab_py = xyz2lab(xyz_py, 'user', wd65_2);
+    lab_mt = xyz2lab(xyz_mt, 'user', wd65_2);
+
+    % ---- 逐像素 dE2000 ----
+    de_px = deltaE2000(lab_py, lab_mt);
+
+    % ---- mask 内加权平均（对齐 process_one 的 if_wei 分支）----
+    if if_wei
+        w = bull_weight(idx_keep);  w = w / sum(w);
+        ave_py = sum(lab_py .* w, 1);
+        ave_mt = sum(lab_mt .* w, 1);
+    else
+        w = [];
+        ave_py = mean(lab_py, 1);
+        ave_mt = mean(lab_mt, 1);
+    end
+
+    % ---- 打印统计 ----
+    fprintf('\n===== single_image_debug =====\n');
+    fprintf('  jpg_python = %s\n', jpg_python);
+    fprintf('  jpg_matlab = %s\n', jpg_matlab);
+    fprintf('  mask       = %s  (原 %dx%d -> 1/6: %dx%d)\n', ...
+        mask_file, mask_orig_size(1), mask_orig_size(2), size(bull,1), size(bull,2));
+    fprintf('  if_wei=%d  n_mask_px=%d\n', if_wei, size(rgb_py_keep,1));
+    fprintf('  Python Lab mean = [%.4f %.4f %.4f]\n', ave_py);
+    fprintf('  MATLAB Lab mean = [%.4f %.4f %.4f]\n', ave_mt);
+    fprintf('  dE(平均Lab)      = %.4f\n', deltaE2000(ave_py, ave_mt));
+    fprintf('  dE_px mean/max   = %.4f / %.4f\n', mean(de_px), max(de_px));
+    fprintf('  dE_px median/min = %.4f / %.4f\n', median(de_px), min(de_px));
+    fprintf('  dE_px p95 / p99  = %.4f / %.4f\n', prctile(de_px,95), prctile(de_px,99));
+
+    % ---- 写 xlsx ----
+    row = struct( ...
+        'stimulus', stimulus, 'subject', lastPart, 'if_wei', if_wei, ...
+        'avg_L_py', ave_py(1), 'avg_a_py', ave_py(2), 'avg_b_py', ave_py(3), ...
+        'avg_L_mt', ave_mt(1), 'avg_a_mt', ave_mt(2), 'avg_b_mt', ave_mt(3), ...
+        'dE_avg', deltaE2000(ave_py, ave_mt), ...
+        'dE_max_px', max(de_px), 'dE_p99_px', prctile(de_px,99), 'dE_p95_px', prctile(de_px,95), ...
+        'dE_mean_px', mean(de_px), 'dE_median_px', median(de_px), 'dE_min_px', min(de_px), ...
+        'n_mask_px', size(rgb_py_keep,1));
+    writetable(struct2table(row), OUT_XLSX, 'Sheet', 'summary');
+    meta = {
+        'mode',            'single_image_debug';
+        'jpg_python',      jpg_python;
+        'jpg_matlab',      jpg_matlab;
+        'mask_file',       mask_file;
+        'mask_orig_size',  sprintf('%dx%d', mask_orig_size(1), mask_orig_size(2));
+        'mask_resize_1_6', sprintf('%dx%d', size(bull,1), size(bull,2));
+        'lut_phase2',      DATAI_P2;
+        'wd65_scaled_p2',  sprintf('[%.4f %.4f %.4f]', wd65_2);
+        'reshape_order',   'MATLAB column-major (Fortran)'};
+    writecell(meta, OUT_XLSX, 'Sheet', 'meta');
+    fprintf('  [done] 写出 -> %s\n', OUT_XLSX);
 end

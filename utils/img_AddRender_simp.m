@@ -1,5 +1,6 @@
 function [outnew,dest_lab,bull_nosd,lab2] = img_AddRender_simp(img, bull,bull_nosd, string, ...
-    delta_Lab,XYZ,noFaceRGB_file,if_wei,if_2mask, handle, xyz2_file, outnew_file)
+    delta_Lab,XYZ,noFaceRGB_file,if_wei,if_2mask, handle, xyz2_file, outnew_file, ...
+    delta_lab_file, lab2_file)
     % outnew 鏄?(targetwhite)鏍囧噯D65锛孻=100浣滀负鍙傝?冪櫧鏃剁殑缁撴灉锛屽浘鍍忎寒搴褰掍竴鍖栧埌0-100锛屾墍鏈夊儚绱犵殑xyz鍧囦箻浠ヤ寒搴︾郴鏁発L锛屽彲浠ヤ綔涓烘覆鏌撶粨鏋滀娇鐢紝鍥犱负鍙傝?冨厜婧愭亽瀹氫负D65锛孻=100
     % outxyz鍚岀悊锛屼娇鐢╕=100鏍囧噯D65杞崲鍒發ab
 
@@ -10,6 +11,12 @@ function [outnew,dest_lab,bull_nosd,lab2] = img_AddRender_simp(img, bull,bull_no
         LUT_type = "phase1";
     else
         LUT_type = handle.LUT_type;
+    end
+    % 解析 uni_mode（可选参数 handle.uni_mode），缺省为去重（"True"）
+    if nargin < 10 || ~isstruct(handle) || ~isfield(handle,'uni_mode')
+        uni_mode = "True";
+    else
+        uni_mode = handle.uni_mode;
     end
 
     switch string
@@ -66,6 +73,19 @@ function [outnew,dest_lab,bull_nosd,lab2] = img_AddRender_simp(img, bull,bull_no
         [dest_lab]=get_average(lab2,bull,if_wei);
     end
 
+    % 保存 delta_Lab（可选；调试用，与 Python 侧对齐，变量名 delta_lab）
+    if nargin >= 13 && ~isempty(delta_lab_file)
+        delta_lab = delta_Lab;
+        save(delta_lab_file, 'delta_lab');
+        disp(['delta_lab saved: ', char(delta_lab_file)]);
+    end
+    % 保存 lab2（可选；调试用，与 Python 侧对齐）
+    if nargin >= 14 && ~isempty(lab2_file)
+        lab2_img = reshape(lab2, [m, n, p]);
+        save(lab2_file, 'lab2_img');
+        disp(['lab2 saved: ', char(lab2_file)]);
+    end
+
     [xyz2] = lab2xyz2(lab2,'user',wd65_scaled);
     xyz2(logicalIndex, :) = xyz1(logicalIndex, :);
 
@@ -89,13 +109,21 @@ function [outnew,dest_lab,bull_nosd,lab2] = img_AddRender_simp(img, bull,bull_no
         % 
         if ~exist(noFaceRGB_file,"file")
             % noFaceRGB=lut3d_xyz2rgbLeo(xyz2(logicalIndex, :), recnew_file);
-            noFaceRGB=lut3d_xyz2rgbKDitp1(xyz2(logicalIndex, :), datafile);
+            if strcmp(uni_mode, "False")
+                noFaceRGB=lut3d_xyz2rgbKDitp1_noUni(xyz2(logicalIndex, :), datafile);
+            else
+                noFaceRGB=lut3d_xyz2rgbKDitp1(xyz2(logicalIndex, :), datafile);
+            end
             save(noFaceRGB_file,"noFaceRGB");
         else
             load(noFaceRGB_file);
         end
         % [rgbnew_bull1] = lut3d_xyz2rgbLeo(xyz2(~logicalIndex, :), recnew_file);
-        [rgbnew_bull1,~] = lut3d_xyz2rgbKDitp1(xyz2(~logicalIndex, :), datafile);
+        if strcmp(uni_mode, "False")
+            [rgbnew_bull1,~] = lut3d_xyz2rgbKDitp1_noUni(xyz2(~logicalIndex, :), datafile);
+        else
+            [rgbnew_bull1,~] = lut3d_xyz2rgbKDitp1(xyz2(~logicalIndex, :), datafile);
+        end
 
 
         rgbnew = zeros(size(xyz2));
