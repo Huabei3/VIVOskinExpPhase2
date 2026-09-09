@@ -5,7 +5,7 @@ MATLAB 源: I_render_stimuli\main_rs_test.m（基于 main_rs.m，应用 i_test �
 依赖: data_io / color_utils / mask / cat_adjust / render_core
 
 逐行对应（main_rs.m 行号）：
-  datai_file        -> data_ipv18_3.mat（正向 LUT，仅取 XYZw）  L9-13
+  datai_file        -> data_ipv30_phase2_3.mat（phase2 LUT）  L9-13
   new_names/Dtype   -> 20 个 r subject, Dtype="full"            L17-22
   i_type            -> select_type.m（f01-03=1,f04-06=2,f07-08=3,f09-10=4）
   if_wei            -> 修正：原 main_rs.m 误写 "f04i" 等，rs 组 lastPart 为 r 后缀  L37-41
@@ -21,7 +21,7 @@ MATLAB 源: I_render_stimuli\main_rs_test.m（基于 main_rs.m，应用 i_test �
   i_type==4         -> adjust_dlabs(adj)                         L123-132
   delta_Lab         -> dlab - average                            L138-139
   search_name       -> {stem}_{02d}[%.4f,%.4f,%.4f].jpg          L141-143
-  渲染              -> img_AddRender_simp('srgb', 无 handle=phase1)  L160-162
+  渲染              -> img_AddRender_simp('LUT', phase2)  L160-162
   保存              -> imwrite jpg（MATLAB 默认 quality=75）
 
 用法:
@@ -44,7 +44,7 @@ from PIL import Image
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 
-from data_io import imread, im2double, load_xyz, load_points, load_avelab, load_c_lpara, load_forward_lut, load_mat
+from data_io import imread, im2double, load_xyz, load_points, load_avelab, load_c_lpara, load_lut, load_mat
 from color_utils import xyz2lab
 from mask import get_average
 from cat_adjust import CAT_lab2lab1, adjust_dlabs_shape1, adjust_dlabs
@@ -52,10 +52,25 @@ from render_core import img_AddRender_simp
 
 I_ROOT = ROOT.parent / "I_render_stimuli"
 PROJ = I_ROOT.parent
-XYZ_BASE = Path(os.environ.get("XYZ_BASE", r"D:\work\VIVOSkinExpe\original_image_XYZ"))
+
+
+def _resolve_xyz_base() -> Path:
+    """XYZ 数据根目录：优先 XYZ_BASE 环境变量，否则自动探测云/本地路径（对齐 main_i.py）。"""
+    env = os.environ.get("XYZ_BASE")
+    if env:
+        return Path(env)
+    for cand in ("/root/autodl-tmp/original_image_XYZ",
+                 r"D:\work\VIVOSkinExpe\original_image_XYZ"):
+        p = Path(cand)
+        if p.is_dir():
+            return p
+    return Path(r"D:\work\VIVOSkinExpe\original_image_XYZ")
+
+
+XYZ_BASE = _resolve_xyz_base()
 
 # ---------- main_rs.m L9-13 ----------
-DATA_FORWARD = "data_ipv18_3.mat"  # 正向 LUT，仅用 XYZw
+LUT_TYPE = "phase2"  # 对齐 main_i：data_ipv30_phase2_3.mat（渲染逻辑与 i 组完全一致）
 wd65 = np.array([94.813, 100.000, 107.262])
 
 # ---------- L17-22 ----------
@@ -110,7 +125,8 @@ def render_subject(model: str, names: list[str] | None = None,
                    quality: int = 75, dry_run: bool = False,
                    force: bool = False, points: int | None = None,
                    first_only: bool = False, point: int | None = None,
-                   save_mats: bool = False) -> dict:
+                   save_mats: bool = False, dedup_mode: str = "fast",
+                   device: str = "auto", gpu: bool = False) -> dict:
     lastPart = model + "r"
     # 修正：原 main_rs.m L37 误写 "f04i" 等（i 后缀，rs 组恒不匹配→if_wei 恒 1）
     if_wei = 0 if lastPart in ["f04r", "f05r", "f06r", "m04r", "m06r"] else 1
@@ -118,7 +134,11 @@ def render_subject(model: str, names: list[str] | None = None,
     i_type = select_type(model)
 
     # ---------- wd65_scaled L9-13 ----------
-    lut = load_forward_lut(PROJ / "A_characterization" / "display_model" / DATA_FORWARD)
+    if LUT_TYPE == "phase2":
+        datai_file = PROJ / "A_characterization" / "display_model" / "data_ipv30_phase2_3.mat"
+    else:
+        datai_file = PROJ / "A_characterization" / "display_model" / "data_ipv35_3.mat"
+    lut = load_lut(datai_file)
     XYZw_LUT = lut["XYZw"].reshape(1, 3)
     wd65_scaled = wd65 / 100.0 * XYZw_LUT[0, 1]
 
@@ -138,7 +158,10 @@ def render_subject(model: str, names: list[str] | None = None,
         files = files[:1]
 
     labC_HD65 = load_avelab(I_ROOT / "documents" / "aveSkin" / "i" / f"aveLab_D65_{i_type}.mat")
-    save_folder = I_ROOT / "rendered_python" / "rs" / lastPart  # Python 独立目录，避免覆盖 MATLAB 结果
+    save_folder = I_ROOT / "rendered_python"
+    if gpu:
+        save_folder = save_folder / "gpu"   # GPU 版输出独立目录，与 CPU 版 main_rs 区分（对齐 main_i_gpu）
+    save_folder = save_folder / LUT_TYPE / "rs" / lastPart  # Python 独立目录，避免覆盖 MATLAB 结果
     save_folder.mkdir(parents=True, exist_ok=True)
 
     # ---------- num_points 循环外读 L7-8 ----------
@@ -246,12 +269,14 @@ def render_subject(model: str, names: list[str] | None = None,
             t0 = time.time()
             xyz2_file = out_path.with_suffix(".mat") if save_mats else None
             outnew_file = out_path.with_name(out_path.stem + "_outnew.mat") if save_mats else None
-            # rs 组：'srgb' 分支，无 handle（=phase1），if_2mask=0，bull_nosd=bull
+            # rs 组与 i 组渲染逻辑完全对齐：'LUT'（matrix==3）+ phase2 LUT，
+            # 走 lut3d_xyz2rgbKDitp1 的 KNN。rs 组无 nosd mask，bull_nosd=bull、if_2mask=0。
+            handle = {"LUT_type": LUT_TYPE, "dedup_mode": dedup_mode, "device": device}
             out_rendering, dest_lab, _, _ = img_AddRender_simp(
-                img, bull, bull, 'srgb', delta_Lab[i_points],
-                XYZ, noFaceRGB_file, if_wei, if_2mask, data_root=PROJ,
+                img, bull, bull, 'LUT', delta_Lab[i_points],
+                XYZ, noFaceRGB_file, if_wei, if_2mask, handle, data_root=PROJ,
                 xyz2_file=xyz2_file, outnew_file=outnew_file)
-            out8 = np.clip(out_rendering * 255.0, 0, 255).astype(np.uint8)
+            out8 = np.clip(np.floor(out_rendering * 255.0 + 0.5), 0, 255).astype(np.uint8)
             Image.fromarray(out8).save(out_path, "JPEG", quality=quality)
             stats["rendered"] += 1
             dt = time.time() - t0
@@ -286,6 +311,8 @@ def main():
                     help="只渲染第 N 个点（1-based，对齐 for i_points=[startCenter]）")
     ap.add_argument("--save-mats", action="store_true",
                     help="同时保存调试 mat（xyz2/outnew，默认只出 jpg）")
+    ap.add_argument("--dedup-mode", choices=["matlab", "fast"], default="fast",
+                    help="LUT 去重语义：matlab=uniquetol 容差（1:1 一致）/ fast=round 加速（默认）")
     args = ap.parse_args()
 
     subs = args.subs if args.subs else NEW_NAMES
@@ -296,7 +323,8 @@ def main():
             print(f"WARN unknown subject {model}, skip")
             continue
         render_subject(model, args.names, args.quality, args.dry_run, args.force,
-                       args.points, args.first_only, args.point, args.save_mats)
+                       args.points, args.first_only, args.point, args.save_mats,
+                       args.dedup_mode)
 
 
 if __name__ == "__main__":

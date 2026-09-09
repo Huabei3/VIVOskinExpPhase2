@@ -7,10 +7,10 @@
   最后 24 个色块画两张 4x6 色卡。
 
 关键差异（用户指定）：
-  RGB_all{k} 处 MATLAB 用 lut3d_xyz2rgbNoParitp，
-  Python 版改用 python 管线自带的 lut3d_xyz2rgbKDitp1（lut_gpu.py）。
-  另内置 lut3d_xyz2rgbNoParitp 的 Python 复刻作为算法对齐参考，
-  用于判断 KDitp1(带 uniquetol 去重) 与 NoParitp(逐点) 结果是否一致。
+  MATLAB 与 Python 均改为“不去重”：RGB_all{k} 用逐点 KNN(K=8) 插值，
+  不做 uniquetol 去重（等价 lut3d_xyz2rgbNoParitp_noUni）。
+  Python 侧通过 lut3d_xyz2rgbKDitp1(..., dedup_mode="none") 实现不去重，
+  与 MATLAB lut3d_xyz2rgbNoParitp_noUni 逐点一致。
 
 依赖（vivorender 环境）: numpy scipy torch pandas PIL
 输出:
@@ -198,15 +198,15 @@ def main():
     RGB_all, XYZ_all, ratio_all = [], [], []
     for k, (name, df, di) in enumerate(zip(LUT_TYPES, DATAFILES, DATAI_FILES)):
         lut = load_lut(df)
-        # ① Python 管线逻辑: lut3d_xyz2rgbKDitp1
-        RGB_k, ratio_k = lut3d_xyz2rgbKDitp1(XYZ, lut=lut)
-        # ② 算法对齐参考: NoParitp 复刻（逐点无去重）
+        # ① 管线逻辑: lut3d_xyz2rgbKDitp1 但 dedup_mode="none"（不去重）
+        RGB_k, ratio_k = lut3d_xyz2rgbKDitp1(XYZ, lut=lut, dedup_mode="none")
+        # ② 算法对齐参考: NoParitp 复刻（逐点无去重，应与①一致）
         RGB_np, ratio_np = lut3d_xyz2rgbNoParitp(XYZ, lut)
         diff = np.abs(RGB_k - RGB_np)
         print(f"\n[{name}] {df.name}")
-        print(f"  KDitp1  : out_of_gamut_ratio={ratio_k:.4f}")
-        print(f"  NoParitp: out_of_gamut_ratio={ratio_np:.4f}")
-        print(f"  KDitp1 vs NoParitp(复刻) 最大差={diff.max():.6f} 平均差={diff.mean():.6f}")
+        print(f"  KDitp1(none): out_of_gamut_ratio={ratio_k:.4f}")
+        print(f"  NoParitp    : out_of_gamut_ratio={ratio_np:.4f}")
+        print(f"  KDitp1(none) vs NoParitp(复刻) 最大差={diff.max():.6f} 平均差={diff.mean():.6f}")
 
         RGB_all.append(RGB_k)
         ratio_all.append(ratio_k)

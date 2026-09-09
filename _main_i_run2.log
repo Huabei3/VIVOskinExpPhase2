@@ -1,0 +1,65 @@
+
+=== f04i  i_type=2 if_wei=0 if_2mask=0 files=2 ===
+[f04i] done: rendered=0 existing_skip=2
+
+=== f05i  i_type=2 if_wei=0 if_2mask=0 files=2 ===
+[f05i] done: rendered=0 existing_skip=2
+
+=== f06i  i_type=2 if_wei=0 if_2mask=0 files=2 ===
+[f06i] done: rendered=0 existing_skip=2
+
+=== m04i  i_type=2 if_wei=0 if_2mask=0 files=2 ===
+[m04i] done: rendered=0 existing_skip=2
+
+=== m05i  i_type=2 if_wei=1 if_2mask=0 files=2 ===
+[m05i] done: rendered=0 existing_skip=2
+
+=== m06i  i_type=2 if_wei=0 if_2mask=0 files=2 ===
+[m06i] done: rendered=0 existing_skip=2
+
+=== f01i  i_type=1 if_wei=1 if_2mask=0 files=2 ===
+[f01i] done: rendered=0 existing_skip=2
+
+=== f02i  i_type=1 if_wei=1 if_2mask=0 files=2 ===
+[f02i] done: rendered=0 existing_skip=2
+
+=== f03i  i_type=1 if_wei=1 if_2mask=0 files=2 ===
+[f03i] done: rendered=0 existing_skip=2
+
+=== m01i  i_type=1 if_wei=1 if_2mask=0 files=2 ===
+[m01i] done: rendered=0 existing_skip=2
+
+=== m02i  i_type=1 if_wei=1 if_2mask=1 files=2 ===
+[m02i] done: rendered=0 existing_skip=2
+
+=== m03i  i_type=1 if_wei=1 if_2mask=1 files=2 ===
+[m03i] done: rendered=0 existing_skip=2
+
+=== f07i  i_type=3 if_wei=1 if_2mask=0 files=2 ===
+[f07i] done: rendered=0 existing_skip=2
+
+=== f08i  i_type=3 if_wei=1 if_2mask=0 files=2 ===
+[f08i] done: rendered=0 existing_skip=2
+
+=== m07i  i_type=3 if_wei=1 if_2mask=0 files=2 ===
+[m07i] done: rendered=0 existing_skip=2
+
+=== m08i  i_type=3 if_wei=1 if_2mask=0 files=2 ===
+[m08i] done: rendered=0 existing_skip=2
+
+=== f09i  i_type=4 if_wei=1 if_2mask=0 files=2 ===
+[f09i] done: rendered=0 existing_skip=2
+
+=== f10i  i_type=4 if_wei=1 if_2mask=0 files=2 ===
+  f10i/LD65_33[3.5561,1.9463,1.6955].jpg  dE=0.000  764.8s
+[f10i] done: rendered=1 existing_skip=1
+
+=== m09i  i_type=4 if_wei=1 if_2mask=0 files=2 ===
+  m09i/HD65_33[24.565,8.0629,7.1228].jpg  dE=0.027  439.1s
+  m09i/LD65_33[4.0925,2.3789,2.1214].jpg  dE=0.004  397.2s
+[m09i] done: rendered=2 existing_skip=0
+
+=== m10i  i_type=4 if_wei=1 if_2mask=0 files=2 ===
+  m10i/HD65_33[21.0197,7.5335,6.7097].jpg  dE=0.011  380.4s
+  m10i/LD65_33[3.042,1.4732,1.2158].jpg  dE=0.001  374.1s
+[m10i] done: rendered=2 existing_skip=0

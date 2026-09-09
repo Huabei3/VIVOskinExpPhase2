@@ -40,7 +40,8 @@ def xyz2srgb(XYZ):
 
 def img_AddRender_simp(img, bull, bull_nosd, render_type, delta_Lab, XYZ,
                        noFaceRGB_file, if_wei, if_2mask, handle=None,
-                       data_root=None, xyz2_file=None, outnew_file=None):
+                       data_root=None, xyz2_file=None, outnew_file=None,
+                       delta_lab_file=None, lab2_file=None):
     """等价 MATLAB img_AddRender_simp。
 
     Args:
@@ -51,8 +52,11 @@ def img_AddRender_simp(img, bull, bull_nosd, render_type, delta_Lab, XYZ,
         XYZ: (m,n,3) 或 (m*n,3)
         noFaceRGB_file: 背景 LUT 缓存 .mat（变量名 noFaceRGB，与 MATLAB 兼容）
         if_wei, if_2mask: bool
-        handle: dict 含 LUT_type（"phase1"/"phase2"），None=phase1
+        handle: dict 含 LUT_type（"phase1"/"phase2"）与可选 dedup_mode
+                （"matlab"/"fast"/"none"），None=phase1
         data_root: C_VIVO_skin_project 根，默认本文件上上级
+        xyz2_file / outnew_file: 可选，保存 LUT 映射前 XYZ / 映射后 RGB 的 .mat
+        delta_lab_file / lab2_file: 可选，保存 delta_Lab / lab2 的 .mat（调试用）
 
     Returns:
         outnew (m,n,3) float, dest_lab (3,), bull_nosd, lab2 (m*n,3)
@@ -61,6 +65,14 @@ def img_AddRender_simp(img, bull, bull_nosd, render_type, delta_Lab, XYZ,
         LUT_type = "phase1"
     else:
         LUT_type = handle["LUT_type"]
+    # dedup_mode 透传给 lut3d_xyz2rgbKDitp1（matlab/fast/none），默认 fast（保持既有加速语义）
+    dedup_mode = "fast"
+    if isinstance(handle, dict) and "dedup_mode" in handle:
+        dedup_mode = handle["dedup_mode"]
+    # device 透传给 lut3d_xyz2rgbKDitp1（auto/cuda/cpu），默认 auto（有 CUDA 自动走 GPU）
+    device = "auto"
+    if isinstance(handle, dict) and "device" in handle:
+        device = handle["device"]
     matrix = {"srgb": 1, "polynomial": 2, "LUT": 3}[render_type]
 
     img = np.asarray(img, dtype=np.float64)
@@ -89,8 +101,12 @@ def img_AddRender_simp(img, bull, bull_nosd, render_type, delta_Lab, XYZ,
         xyz1 = XYZ.reshape(m * n, 3)
 
     lab1 = xyz2lab(xyz1, "user", wd65_scaled)
-    lab2 = lab1 + (np.asarray(delta_Lab, dtype=np.float64).reshape(1, 3)
-                   * bull_weight.reshape(-1, 1))
+    delta_lab_vec = np.asarray(delta_Lab, dtype=np.float64).reshape(1, 3)
+    # 保存 delta_Lab（可选；调试用，与 MATLAB 侧对齐）
+    if delta_lab_file is not None:
+        savemat(str(delta_lab_file), {"delta_lab": delta_lab_vec})
+        print(f"  delta_lab saved: {delta_lab_file}")
+    lab2 = lab1 + delta_lab_vec * bull_weight.reshape(-1, 1)
     sd_idx = (~logicalIndex) & logicalIndex_nosd
     lab2[sd_idx, 1] = np.maximum(0, lab2[sd_idx, 1])
     lab2[sd_idx, 2] = np.maximum(0, lab2[sd_idx, 2])
@@ -98,6 +114,12 @@ def img_AddRender_simp(img, bull, bull_nosd, render_type, delta_Lab, XYZ,
         dest_lab = get_average(lab2, bull_nosd, if_wei)
     else:
         dest_lab = get_average(lab2, bull, if_wei)
+
+    # 保存 lab2（可选；调试用，与 MATLAB 侧对齐）
+    if lab2_file is not None:
+        lab2_img = lab2.reshape(m, n, 3)
+        savemat(str(lab2_file), {"lab2_img": lab2_img})
+        print(f"  lab2 saved: {lab2_file}")
 
     xyz2 = lab2xyz2(lab2, "user", wd65_scaled)
     xyz2[logicalIndex, :] = xyz1[logicalIndex, :]
@@ -116,12 +138,18 @@ def img_AddRender_simp(img, bull, bull_nosd, render_type, delta_Lab, XYZ,
     else:
         datafile = datai_file
         noFaceRGB_file = Path(noFaceRGB_file)
-        if not noFaceRGB_file.exists():
-            noFaceRGB, _ = lut3d_xyz2rgbKDitp1(xyz2[logicalIndex, :], datafile=str(datafile))
+        n_face = int(np.count_nonzero(logicalIndex))
+        noFaceRGB = None
+        if noFaceRGB_file.exists():
+            cached = np.asarray(loadmat(str(noFaceRGB_file))["noFaceRGB"], dtype=np.float64)
+            if cached.ndim == 2 and cached.shape[0] == n_face:
+                noFaceRGB = cached
+        if noFaceRGB is None:
+            noFaceRGB, _ = lut3d_xyz2rgbKDitp1(xyz2[logicalIndex, :], datafile=str(datafile),
+                                                dedup_mode=dedup_mode, device=device)
             savemat(str(noFaceRGB_file), {"noFaceRGB": noFaceRGB})
-        else:
-            noFaceRGB = np.asarray(loadmat(str(noFaceRGB_file))["noFaceRGB"], dtype=np.float64)
-        rgbnew_bull1, _ = lut3d_xyz2rgbKDitp1(xyz2[~logicalIndex, :], datafile=str(datafile))
+        rgbnew_bull1, _ = lut3d_xyz2rgbKDitp1(xyz2[~logicalIndex, :], datafile=str(datafile),
+                                              dedup_mode=dedup_mode, device=device)
         rgbnew = np.zeros_like(xyz2)
         if noFaceRGB is not None and noFaceRGB.size > 0:
             rgbnew[logicalIndex, :] = noFaceRGB

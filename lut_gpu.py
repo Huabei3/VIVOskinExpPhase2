@@ -53,9 +53,9 @@ def _clip_matlab(RGB: np.ndarray) -> np.ndarray:
 
 
 def _uniquetol_round(Lab: np.ndarray, round_digits: int = 4):
-    """复刻 uniquetol('ByRows',true)：round 到 4 位后按行去重。
+    """【fast 语义】round 到固定小数位后按行去重（加速改造版，非 MATLAB 原语义）。
 
-    返回 (unique_lab, group_first_lab, inverse)：
+    返回 (unique_lab, first_idx, inverse)：
       unique_lab: (U,3) 唯一行的原始 Lab 值
       first_idx:  (U,) 每组在原始 Lab 中第一个出现的索引
       inverse:    (M,) 每个像素所属组号
@@ -65,6 +65,59 @@ def _uniquetol_round(Lab: np.ndarray, round_digits: int = 4):
         rounded, axis=0, return_index=True, return_inverse=True
     )
     unique_lab = Lab[first_idx]  # 组首行的原始 Lab（非 round 值）
+    return unique_lab, first_idx, inverse
+
+
+def _uniquetol_matlab(Lab: np.ndarray):
+    """【matlab 语义】1:1 复刻 MATLAB
+    `uniquetol(Lab, 0.01/max(max(Lab)), 'ByRows', true, 'OutputAllIndices', true)`。
+
+    MATLAB uniquetol 真实语义（R2024a 实测确认）：
+      1) DataScale 默认 = max(abs(Lab), [], 1)，**按列**取最大绝对值（每列一个 scale）。
+         实测 Lab=[60 10 0; 60 10.005 0; 60 0 0] 三行全分开：
+         a 通道容差 = 0.01*10.005/60 ≈ 0.00167 < 0.005，证明不是全局标量。
+      2) 实际容差 = tol * DataScale（逐元素），判断 = all(abs(row-anchor) <= 实际容差)。
+      3) 分组算法 = **排序贪心**（先按行字典序排序，anchor=当前组最小值）：
+         实测 Lab=[100.006 0 0; 100.000 0 0; 100.011 0 0] 分出 2 组
+         {100.000,100.006} 与 {100.011}；而"顺序贪心"会链式合并成 1 组（错误）。
+      4) 组代表行 = 组内**原始顺序第一个**（= MATLAB 代码 Lab(idx(1),:)，idx=IA{i}）。
+
+    返回 (unique_lab, first_idx, inverse)：
+      unique_lab: (U,3) 每组代表行的原始 Lab 值（= 组内原始顺序首行）
+      first_idx:  (U,) 每组在原始 Lab 中第一个出现的索引
+      inverse:    (M,) 每个像素所属组号
+    """
+    # DataScale = 按列 max(abs)，等价 MATLAB max(abs(Lab), [], 1)
+    data_scale = np.max(np.abs(Lab), axis=0)  # (3,)
+    tol_scalar = 0.01 / float(np.max(np.abs(Lab)))  # 0.01/max(max(Lab))
+    actual_tol = tol_scalar * data_scale  # (3,) 逐元素容差
+
+    M = Lab.shape[0]
+
+    # 1) 按行字典序排序（先 L 再 a 再 b），等价 MATLAB sortrows
+    order = np.lexsort((Lab[:, 2], Lab[:, 1], Lab[:, 0]))
+    sorted_Lab = Lab[order]
+
+    # 2) 排序贪心聚类：anchor = 当前组最小值（排序后第一个），只与 anchor 比较
+    group_of_sorted = np.empty(M, dtype=np.int64)
+    n_groups = 0
+    anchor = None
+    for i in range(M):
+        row = sorted_Lab[i]
+        if i == 0 or not np.all(np.abs(row - anchor) <= actual_tol):
+            anchor = row
+            n_groups += 1
+        group_of_sorted[i] = n_groups - 1
+
+    # 3) 映射回原始顺序
+    inverse = np.empty(M, dtype=np.int64)
+    inverse[order] = group_of_sorted
+
+    # 4) 每组原始顺序第一个索引（= MATLAB IA{i}(1)）
+    first_idx = np.full(n_groups, M, dtype=np.int64)
+    np.minimum.at(first_idx, inverse, np.arange(M, dtype=np.int64))
+
+    unique_lab = Lab[first_idx]
     return unique_lab, first_idx, inverse
 
 
@@ -92,8 +145,16 @@ def lut3d_xyz2rgbKDitp1(
     device: str = "auto",
     chunk: int = 8192,
     round_digits: int = 4,
+    dedup_mode: str = "fast",
 ):
     """等价 MATLAB lut3d_xyz2rgbKDitp1(XYZ, datafile)。
+
+    Args:
+        dedup_mode: 去重语义开关
+            "matlab" -> 1:1 复刻 MATLAB `uniquetol(Lab, 0.01/max(max(Lab)), 'ByRows', true)`
+                        （无穷范数容差贪心聚类，追求逐像素一致，较慢）
+            "fast"   -> round 到 round_digits 位小数后 np.unique（加速改造语义，默认）
+            "none"   -> 不去重：逐行独立 KNN(K=8)，等价 MATLAB lut3d_xyz2rgbNoParitp_noUni
 
     Returns: (RGB (M,3) float64, out_of_gamut_ratio float)
     """
@@ -113,8 +174,17 @@ def lut3d_xyz2rgbKDitp1(
     # ---- 1) XYZ -> Lab ----
     Lab = xyz2lab(XYZ, "user", XYZw)                       # (M,3) float64
 
-    # ---- 2) uniquetol 复刻 ----
-    unique_lab, _, inverse = _uniquetol_round(Lab, round_digits)
+    # ---- 2) 去重（matlab 语义 / fast 语义 / none 不去重，见 dedup_mode）----
+    if dedup_mode == "matlab":
+        unique_lab, _, inverse = _uniquetol_matlab(Lab)
+    elif dedup_mode == "fast":
+        unique_lab, _, inverse = _uniquetol_round(Lab, round_digits)
+    elif dedup_mode == "none":
+        # 不去重：每一行都独立做 KNN(K=8)，等价 MATLAB lut3d_xyz2rgbNoParitp_noUni
+        unique_lab = Lab
+        inverse = np.arange(Lab.shape[0], dtype=np.int64)
+    else:
+        raise ValueError(f"lut3d_xyz2rgbKDitp1: unknown dedup_mode '{dedup_mode}'")
 
     # ---- 3) GPU KNN + 加权 ----
     if device == "auto":

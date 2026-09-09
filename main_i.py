@@ -39,20 +39,35 @@ import time
 from pathlib import Path
 
 import numpy as np
+import cv2
 from PIL import Image
 
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 
-from data_io import imread, im2double, load_xyz, load_points, load_avelab, load_c_lpara, load_lut
+from data_io import imread, im2double, load_mat, load_xyz, load_points, load_avelab, load_c_lpara, load_lut
 from color_utils import xyz2lab
 from mask import get_average
 from cat_adjust import CAT_lab2lab1, adjust_dlabs_shape1, adjust_dlabs
 from render_core import img_AddRender_simp
+from matlab_resize import imresize_matlab
 
 I_ROOT = ROOT.parent / "I_render_stimuli"
 PROJ = I_ROOT.parent
-XYZ_BASE = Path(os.environ.get("XYZ_BASE", r"D:\work\VIVOSkinExpe\original_image_XYZ"))
+def _resolve_xyz_base() -> Path:
+    env = os.environ.get("XYZ_BASE")
+    if env:
+        return Path(env)
+    # 自动探测：优先云实例数据盘路径，其次本地 Windows 路径
+    for cand in ("/root/autodl-tmp/original_image_XYZ",
+                 r"D:\work\VIVOSkinExpe\original_image_XYZ"):
+        p = Path(cand)
+        if p.is_dir():
+            return p
+    return Path(r"D:\work\VIVOSkinExpe\original_image_XYZ")
+
+
+XYZ_BASE = _resolve_xyz_base()
 
 # ---------- main_i_test.m L7-12 ----------
 CT_NAMES = ["H3K", "H4K", "H5K", "H6K", "H7K", "H8K", "HD65",
@@ -99,11 +114,29 @@ def _match_by_stem(stem: str, paths: list[Path]) -> Path | None:
     return None
 
 
+def _imresize_div(a: np.ndarray, factor: float) -> np.ndarray:
+    """对齐 MATLAB imresize(a, [H/factor, W/factor])：精确复现 bicubic(Keys a=-0.5)+抗锯齿。
+
+    double 路径逐像素对齐 MATLAB（2.6e-13）；uint8 路径对齐「每步 round+clip」
+    （bicubic 负 overshoot 每步 clip 到 0，见 matlab_resize.py）。
+    """
+    if a.ndim < 2:
+        return a
+    H, W = a.shape[0], a.shape[1]
+    new_H = int(np.ceil(H / factor))
+    new_W = int(np.ceil(W / factor))
+    return imresize_matlab(a, [new_H, new_W])
+
+
 def render_subject(model: str, names: list[str] | None = None,
                    quality: int = 75, dry_run: bool = False,
                    force: bool = False, points: int | None = None,
                    first_only: bool = False, point: int | None = None,
-                   save_mats: bool = False) -> dict:
+                   save_mats: bool = False, dedup_mode: str = "fast",
+                   resize_factor: float | None = None,
+                   uni: bool | None = None,
+                   device: str = "auto", save_format: str = "jpg",
+                   gpu: bool = False) -> dict:
     lastPart = model + "i"
     if_wei = 0 if lastPart in ["f04i", "f05i", "f06i", "m04i", "m06i"] else 1
     if_2mask = 1 if lastPart in ["m02i", "m03i"] else 0
@@ -138,7 +171,15 @@ def render_subject(model: str, names: list[str] | None = None,
         files = files[:1]
 
     labC_HD65 = load_avelab(I_ROOT / "documents" / "aveSkin" / "i" / f"aveLab_D65_{i_type}.mat")
-    save_folder = I_ROOT / "rendered_python" / LUT_TYPE / "i" / lastPart  # Python 独立目录，避免覆盖 MATLAB 结果
+    # ---------- 输出目录：与「是否 ./6」「是否去重」挂钩 ----------
+    save_folder = I_ROOT / "rendered_python"
+    if gpu:
+        save_folder = save_folder / "gpu"   # GPU 版在 phase2 之前插入一级 gpu，与 CPU 版 main_i 区分
+    save_folder = save_folder / LUT_TYPE / "i" / lastPart  # Python 独立目录，避免覆盖 MATLAB 结果
+    if resize_factor is not None:      # 有 ./6 逻辑 -> 在 {lastPart} 后加一级 small
+        save_folder = save_folder / "small"
+    dedup = uni if uni is not None else (dedup_mode != "none")
+    save_folder = save_folder / ("uni" if dedup else "no_uni")  # 有去重 -> uni，否则 no_uni
     save_folder.mkdir(parents=True, exist_ok=True)
 
     # ---------- num_points 循环外读 L72-73 ----------
@@ -153,29 +194,37 @@ def render_subject(model: str, names: list[str] | None = None,
 
     stats = {"lastPart": lastPart, "n_files": len(files),
              "if_wei": if_wei, "if_2mask": if_2mask, "i_type": i_type,
-             "rendered": 0, "skipped_existing": 0, "skipped": False}
+             "rendered": 0, "skipped_existing": 0, "exported_from_mat": 0, "skipped": False}
     print(f"\n=== {lastPart}  i_type={i_type} if_wei={if_wei} if_2mask={if_2mask} "
           f"files={len(files)} ===")
 
     for i, fp in enumerate(files):
         stem = fp.stem
         img0 = imread(str(fp))
+        if resize_factor is not None:
+            img0 = _imresize_div(img0, resize_factor)  # 对齐 main_i_test.m: imresize(img0,[H/6,W/6])
         img = im2double(img0)
         m, n = img.shape[0], img.shape[1]
 
         # ---------- 找 bull/bull_nosd/XYZ L88-113 ----------
         bull = imread(str(fp))  # dir_mask 与 files 同目录同名
+        if resize_factor is not None:
+            bull = _imresize_div(bull, resize_factor)
         bull_nosd_p = _match_by_stem(stem, dir_mask_nosd)
         if bull_nosd_p is None:
             print(f"[{lastPart}/{stem}] WARN no bull_nosd, use bull")
             bull_nosd = bull
         else:
             bull_nosd = imread(str(bull_nosd_p))
+            if resize_factor is not None:
+                bull_nosd = _imresize_div(bull_nosd, resize_factor)
         xyz_p = _match_by_stem(stem, dir_XYZfile)
         if xyz_p is None:
             print(f"[{lastPart}/{stem}] WARN no XYZ file, skip")
             continue
         XYZ = load_xyz(str(xyz_p))["XYZ_cropped"]
+        if resize_factor is not None:
+            XYZ = _imresize_div(XYZ, resize_factor)
 
         xyz1 = XYZ.reshape(m * n, 3)
         lab1 = xyz2lab(xyz1, 'user', wd65_scaled)
@@ -219,10 +268,16 @@ def render_subject(model: str, names: list[str] | None = None,
         # ---------- delta_Lab L170 ----------
         delta_Lab = dlab_CATed - np.tile(average, (len(dlabs), 1))
 
-        handle = {"LUT_type": LUT_TYPE}
+        # ---------- uni 开关：布尔语义 -> dedup_mode ----------
+        if uni is True:
+            dedup_mode = "matlab"  # 有去重，1:1 对齐 MATLAB uniquetol（排序贪心）
+        elif uni is False:
+            dedup_mode = "none"    # 无去重，逐行独立 KNN
+        handle = {"LUT_type": LUT_TYPE, "dedup_mode": dedup_mode, "device": device}
         noFaceRGB_folder = save_folder / "noFaceRGB"
         noFaceRGB_folder.mkdir(exist_ok=True)
-        noFaceRGB_file = noFaceRGB_folder / f"{stem}.mat"
+        r_tag = "" if resize_factor is None else f"_r{resize_factor:g}"
+        noFaceRGB_file = noFaceRGB_folder / f"{stem}{r_tag}.mat"
 
         n_pts = len(num_points) if points is None else min(points, len(num_points))
         for i_points in range(n_pts):
@@ -230,7 +285,7 @@ def render_subject(model: str, names: list[str] | None = None,
                 continue
             dlab = delta_Lab[i_points] + average
             search_name = (f"{stem}_{i_points + 1:02d}"
-                           f"[{_mnum(dlab[0])},{_mnum(dlab[1])},{_mnum(dlab[2])}].jpg")
+                           f"[{_mnum(dlab[0])},{_mnum(dlab[1])},{_mnum(dlab[2])}].{save_format}")
             out_path = save_folder / search_name
             if out_path.exists() and not force:
                 stats["skipped_existing"] += 1
@@ -240,14 +295,29 @@ def render_subject(model: str, names: list[str] | None = None,
                 continue
 
             t0 = time.time()
+            # png 模式：若已有 *_outnew.mat，直接导出 png 跳过渲染
+            outnew_check = out_path.with_name(out_path.stem + "_outnew.mat")
+            if save_format == "png" and outnew_check.is_file():
+                _outnew = np.asarray(load_mat(outnew_check)["outnew_img"], dtype=np.float64)
+                _out8 = np.clip(np.floor(_outnew * 255.0 + 0.5), 0, 255).astype(np.uint8)
+                Image.fromarray(_out8).save(out_path, "PNG")
+                stats["exported_from_mat"] += 1
+                continue
+
             xyz2_file = out_path.with_suffix(".mat") if save_mats else None
             outnew_file = out_path.with_name(out_path.stem + "_outnew.mat") if save_mats else None
+            delta_lab_file = out_path.with_name(out_path.stem + "_delta_lab.mat") if save_mats else None
+            lab2_file = out_path.with_name(out_path.stem + "_lab2.mat") if save_mats else None
             out_rendering, dest_lab, _, _ = img_AddRender_simp(
                 img, bull, bull_nosd, 'LUT', delta_Lab[i_points],
                 XYZ, noFaceRGB_file, if_wei, if_2mask, handle, data_root=PROJ,
-                xyz2_file=xyz2_file, outnew_file=outnew_file)
-            out8 = np.clip(out_rendering * 255.0, 0, 255).astype(np.uint8)
-            Image.fromarray(out8).save(out_path, "JPEG", quality=quality)
+                xyz2_file=xyz2_file, outnew_file=outnew_file,
+                delta_lab_file=delta_lab_file, lab2_file=lab2_file)
+            out8 = np.clip(np.floor(out_rendering * 255.0 + 0.5), 0, 255).astype(np.uint8)
+            if save_format == "png":
+                Image.fromarray(out8).save(out_path, "PNG")
+            else:
+                Image.fromarray(out8).save(out_path, "JPEG", quality=quality)
             stats["rendered"] += 1
             dt = time.time() - t0
             dE = _rough_dE(dest_lab, dlab)
@@ -270,6 +340,8 @@ def main():
     ap.add_argument("--subs", nargs="*", default=None, help="subject 列表，默认全部 20 个")
     ap.add_argument("--names", nargs="*", default=None, help="刺激名过滤，如 H3K H4K")
     ap.add_argument("--quality", type=int, default=75, help="JPEG quality（MATLAB imwrite 默认 75）")
+    ap.add_argument("--save-format", choices=["jpg", "png"], default="jpg",
+                    help="输出格式：jpg（默认，JPEG quality 同上）/ png（无损；若已存在 *_outnew.mat 则直接导出跳过渲染）")
     ap.add_argument("--dry-run", action="store_true", help="只打印计划")
     ap.add_argument("--force", action="store_true",
                     help="强制重新渲染（忽略已存在的文件）")
@@ -280,7 +352,16 @@ def main():
     ap.add_argument("--point", type=int, default=None,
                     help="只渲染第 N 个点（1-based，对齐 for i_points=[startCenter]）")
     ap.add_argument("--save-mats", action="store_true",
-                    help="同时保存调试 mat（xyz2/outnew，默认只出 jpg）")
+                    help="同时保存调试 mat（xyz2/outnew/delta_lab/lab2，默认只出 jpg）")
+    ap.add_argument("--dedup-mode", choices=["matlab", "fast"], default="fast",
+                    help="LUT 去重语义：matlab=uniquetol 容差（1:1 一致）/ fast=round 加速（默认）")
+    ap.add_argument("--resize-factor", type=float, default=None,
+                    help="把 img/bull/bull_nosd/XYZ 缩小到 1/N（对齐 main_i_test.m 的 ./6 四行 resize），默认不缩放")
+    ap.add_argument("--uni", action=argparse.BooleanOptionalAction, default=None,
+                    help="去重开关：--uni=有去重且 1:1 对齐 MATLAB uniquetol（排序贪心）；"
+                         "--no-uni=无去重（逐行 KNN）。默认 None=沿用 --dedup-mode")
+    ap.add_argument("--device", choices=["auto", "cuda", "cpu"], default="auto",
+                    help="KNN 查找 8 最近邻的执行设备：auto=有 CUDA 走 GPU / cuda=强制 GPU / cpu=强制 CPU（默认 auto）")
     args = ap.parse_args()
 
     subs = args.subs if args.subs else NEW_NAMES
@@ -291,7 +372,9 @@ def main():
             print(f"WARN unknown subject {model}, skip")
             continue
         render_subject(model, args.names, args.quality, args.dry_run, args.force,
-                       args.points, args.first_only, args.point, args.save_mats)
+                       args.points, args.first_only, args.point, args.save_mats,
+                       args.dedup_mode, args.resize_factor, args.uni,
+                       device=args.device, save_format=args.save_format)
 
 
 if __name__ == "__main__":
