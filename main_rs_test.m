@@ -4,15 +4,31 @@ clear;
 addpath("utils\")
 %% rs test（基于 main_rs.m，应用 main_i_test.m 的测试模式）
 % 测试模式（与 main_i_test.m 对齐）：
-%   - for i =[1]                  只处理第 1 张图
-%   - for i_points=[startCenter]  只渲染第 1 个点
+%   - for i =[5]                  只处理第 5 张图（rs05）
+%   - for i_points=[33]           只渲染第 33 个点
+%   - handle.LUT_type / handle.uni_mode / handle.save_format 三个开关见下方
 %   - 额外保存 xyz2_file / outnew_file（'srgb' 分支也支持 nargin>=11/12）
 % 修正：原 main_rs.m L37 误写 "f04i" 等（从 i 组复制未改），
 %       rs 组 lastPart 恒为 r 后缀，故此处修正为 "f04r" 等，
 %       使 f04/f05/f06/m04/m06 的 if_wei=0（与 i 组语义一致）。
 num_points = readmatrix('points_added_33.xlsx'); 
 num_points=[zeros(length(num_points),1),num_points];
-datai_file = '..\A_characterization\display_model\data_ipv18_3.mat';
+% LUT 类型：phase1（使用 data_ipv35_3.mat）或 phase2（使用 data_ipv30_phase2_3.mat）
+handle.LUT_type = "phase2";
+% 输出格式："jpg"（暂时固定，与 Python main_rs.py 输出对齐）或 "png"（无损）
+handle.save_format = "jpg";
+% uni_mode: "True"=去重(uniquetol)，"False"=不去重(逐行 KNN)，与 main_i_test.m 保持一致
+handle.uni_mode = "False";
+% force_rerender: "True"=强制重渲染（忽略已存在的输出图），"False"=已存在则跳过
+% 只影响「是否重新渲染」；noFaceRGB 缓存仍按「文件存在则复用」，与 Python 的 --force 行为一致
+handle.force_rerender = "True";
+% 是否去重：uni_mode="True" -> 去重(uni)，否则不去重(no_uni)
+if_uni = strcmp(handle.uni_mode, "True");
+if strcmp(handle.LUT_type, "phase2")
+    datai_file = '..\A_characterization\display_model\data_ipv30_phase2_3.mat';
+else
+    datai_file = '..\A_characterization\display_model\data_ipv35_3.mat';
+end
 wd65=[94.813  100.000  107.262];
 LUT=load(datai_file);
 XYZw_LUT=LUT.XYZw;
@@ -48,14 +64,22 @@ for i_model=1:length(new_names)
     load(fullfile("documents\aveSkin\i",strcat("aveLab_D65_",num2str(i_type),".mat")), ...
         "labC_HD65");   
     
-    save_folder=fullfile('rendered\rs',lastPart);
+    % 输出目录与 LUT_type / uni_mode 挂钩（对齐 main_i_test.m）：
+    %   rendered\{LUT_type}\rs\{lastPart}\uni 或 \no_uni
+    % 加 LUT_type 一级还能避免 noFaceRGB 缓存串档（缓存只按图名存，不按白点存）
+    save_folder=fullfile('rendered',char(handle.LUT_type),'rs',lastPart);
+    if if_uni
+        save_folder=fullfile(save_folder,'uni');
+    else
+        save_folder=fullfile(save_folder,'no_uni');
+    end
     if ~exist(save_folder, 'dir')
         mkdir(save_folder);
     end
 
     
     load(fullfile("light_r\model_tcp",strcat(model,".mat")));
-    % 测试模式：只处理第 1 张图
+    % 测试模式：只处理第 5 张图（rs05，对应 model_tcp_mean(5,1) 的 CCT）
     % for i = 1:length(files)
     for i =[5]
     
@@ -132,7 +156,7 @@ for i_model=1:length(new_names)
             dlabs=adjust_dlabs(dlabs,adj);
         end
 
-        % 测试模式：只渲染第 1 个点
+        % 测试模式：只渲染第 33 个点
         % for i_points=startCenter:endCenter
         for i_points=[33]
     
@@ -141,10 +165,13 @@ for i_model=1:length(new_names)
 
             search_name=strcat(files(i).name(1:end-4),'_',sprintf('%02d', i_points), ...
                 '[',num2str(dlab(1,1)),',' ,...
-                num2str(dlab(1,2)),',',num2str(dlab(1,3)),'].jpg');
-            dir_img_file=dir(fullfile(save_folder,search_name));
-            if ~isempty(dir_img_file)
-                continue
+                num2str(dlab(1,2)),',',num2str(dlab(1,3)),'].',char(handle.save_format));
+            % force_rerender="True" 时跳过「已存在」检查，强制重渲染（对齐 Python main_rs.py --force）
+            if ~strcmp(handle.force_rerender, "True")
+                dir_img_file=dir(fullfile(save_folder,search_name));
+                if ~isempty(dir_img_file)
+                    continue
+                end
             end
 
             noFaceRGB_folder=fullfile(save_folder,"noFaceRGB");
@@ -153,21 +180,25 @@ for i_model=1:length(new_names)
             end
             noFaceRGB_file=fullfile(noFaceRGB_folder, ...
                 strcat(files(i).name(1:end-4),".mat"));
-            % 'srgb' 分支的中间变量保存（与 main_i_test.m 对齐）
-            xyz2_file=fullfile(save_folder, ...
-                strcat(files(i).name(1:end-4),'_',sprintf('%02d', i_points),'[',num2str(dlab(1,1)),',' ,...
-                num2str(dlab(1,2)),',',num2str(dlab(1,3)),'].mat'));
-            outnew_file=fullfile(save_folder, ...
-                strcat(files(i).name(1:end-4),'_',sprintf('%02d', i_points),'[',num2str(dlab(1,1)),',' ,...
-                num2str(dlab(1,2)),',',num2str(dlab(1,3)),']_outnew.mat'));
+            % 保存 LUT 映射前中间变量 xyz2 / 映射后 RGB outnew（与输出图同名 .mat，与 main_i_test.m 对齐）
+            xyz2_file=fullfile(save_folder, strcat(search_name(1:end-4), ".mat"));
+            outnew_file=fullfile(save_folder, strcat(search_name(1:end-4), "_outnew.mat"));
+
+            % png 模式：若已有 *_outnew.mat，直接导出 png 跳过渲染（save_format="jpg" 时不触发）
+            if ~strcmp(handle.force_rerender, "True") && strcmp(handle.save_format, "png") && exist(outnew_file, 'file') == 2
+                S = load(outnew_file, 'outnew_img');
+                imwrite(S.outnew_img, fullfile(save_folder, search_name));
+                disp([search_name, ' exported from _outnew.mat (skip render)']);
+                continue
+            end
 
             disp([num2str(i_points),'/',num2str(endCenter),'of', ...
                 num2str(i),'/',num2str(numel(files)),' ',files(i).name,' begin']);
             startTime = datetime('now'); 
             %---------渲染-----------
             [out_rendering,dest_lab,bull_nosd]=...
-                img_AddRender_simp(img,bull,bull,'srgb',delta_Lab, ...
-                XYZ,noFaceRGB_file,if_wei,0,[],xyz2_file,outnew_file);
+                img_AddRender_simp(img,bull,bull,'LUT',delta_Lab, ...
+                XYZ,noFaceRGB_file,if_wei,0,handle,xyz2_file,outnew_file);
 
             % plot_pic_dE(out_rendering,lab2,bull,if_wei);
             deltaE2000(dest_lab,dlab)
@@ -175,9 +206,7 @@ for i_model=1:length(new_names)
             disp([num2str(i_points),'/',num2str(endCenter),'of', ...
                 num2str(i),'/',num2str(numel(files)),' ',files(i).name,' was done']);
 
-            imwrite(out_rendering,fullfile(save_folder, ...
-                strcat(files(i).name(1:end-4),'_',sprintf('%02d', i_points),'[',num2str(dlab(1,1)),',' ,...
-                num2str(dlab(1,2)),',',num2str(dlab(1,3)),'].jpg')) );
+            imwrite(out_rendering,fullfile(save_folder, search_name));
             currentTime = datetime('now');    
             formattedTime = datestr(currentTime, 'yyyy-mm-dd HH:MM:SS');
             disp([files(i).name(1:end-4),'_',num2str(i_points),'finished: ', formattedTime]);

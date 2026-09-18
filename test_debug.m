@@ -2,6 +2,7 @@
 % 逐像素比较 MATLAB 管线与 Python 管线渲染的 .png 差异
 % 输出：差值(diff)与绝对差值(|diff|)的最大值、最小值、平均值（整体 + RGB 三通道）
 % 以及逐像素 ΔE2000 统计
+% 注：iOr='rs'（实景）时 CardMask 逻辑整体禁用，全部像素参与统计
 clear; clc;
 
 % ===================== 比较源开关 =====================
@@ -9,38 +10,53 @@ clear; clc;
 % 'gpu_vs_phase1'    : A 侧 = phase1 (rendered_2max)，B 侧 = Python GPU，每个 model 只比 H3K_01 一张
 % 'gpu_vs_phase_all' : A 侧 = phase1 (rendered_2max)，B 侧 = Python GPU (phase2_cloud)，
 %                      no_uni 下全部 png 与 rendered_2max 下对应 jpg 逐张比较
-compare_source = 'gpu_vs_phase_all';
+% 'gpu_vs_phase_jpg' : A 侧 = phase1 (rendered_2max)，B 侧 = E:\VIVOphase2\rendered_python\gpu\phase2
+%                      下 {model}{i/r} 目录中的 jpg（无 no_uni 子层），其余逻辑与 gpu_vs_phase_all 相同，
+%                      遇到不存在的文件直接跳过
+compare_source = 'gpu_vs_phase_jpg';
 store_folder='E:\VIVOphase2\';
 % store_folder='D:\work\VIVOSkinExpe\PeggySkinBackup\A_code\C_VIVO_skin_project\I_render_stimuli';
 iOr='rs';
 % iOr='i';
 % ===================== 待比较的 model 与路径模板 =====================
-models = {'f01', 'm10'};
+% models = {'f01', 'm10'};
+models = [cellstr(compose('f%02d',1:10)), cellstr(compose('m%02d',1:10))];
 
 switch compare_source
     case 'gpu_vs_matlab'
         base_matlab = fullfile( ...
-            'D:\work\VIVOSkinExpe\PeggySkinBackup\A_code\C_VIVO_skin_project\I_render_stimuli', ...
-            'rendered', 'phase2', 'i');
+            store_folder, ...
+            'rendered', 'phase2', iOr);
         base_python = fullfile( ...
-            'D:\work\VIVOSkinExpe\PeggySkinBackup\A_code\C_VIVO_skin_project\I_render_stimuli', ...
-            'rendered_python', 'gpu', 'phase2', 'i');
+            store_folder, ...
+            'rendered_python', 'gpu', 'phase2', iOr);
     case 'gpu_vs_phase1'
         base_matlab = 'D:\work\VIVOSkinExpe\toMax\rendered_2max';
         base_python = fullfile( ...
-            'D:\work\VIVOSkinExpe\PeggySkinBackup\A_code\C_VIVO_skin_project\I_render_stimuli', ...
-            'rendered_python', 'gpu', 'phase2', 'i');
+            store_folder, ...
+            'rendered_python', 'gpu', 'phase2', iOr);
     case 'gpu_vs_phase_all'
         base_matlab = 'D:\work\VIVOSkinExpe\toMax\rendered_2max';
         base_python = fullfile( ...
             'D:\work\VIVOSkinExpe\PeggySkinBackup\A_code\C_VIVO_skin_project\I_render_stimuli_python', ...
-            'rendered_python', 'phase2_cloud', 'gpu', 'phase2', 'i');
+            'rendered_python', 'phase2_cloud', 'gpu', 'phase2', iOr);
+    case 'gpu_vs_phase_jpg'
+        base_matlab = 'D:\work\VIVOSkinExpe\toMax\rendered_2max';
+        base_python = fullfile( ...
+            'E:\VIVOphase2', 'rendered_python', 'gpu', 'phase2', iOr);
     otherwise
         error('未知 compare_source: %s', compare_source);
 end
 
 % ===================== CardMask 遮罩根目录（二值化=1 的区域不参与 |diff|/ΔE 计算） =====================
 stimuli_root = 'D:\work\VIVOSkinExpe\PeggySkinBackup\A_code\C_VIVO_skin_project\I_render_stimuli';
+% iOr='rs'（实景）时，CardMask 相关逻辑整体禁用：不读掩膜、不排除任何像素
+use_cardmask = ~strcmp(iOr, 'rs');
+if use_cardmask
+    fprintf('CardMask: 启用（iOr=%s）\n', iOr);
+else
+    fprintf('CardMask: 禁用（iOr=%s，实景图像不扣掩膜）\n', iOr);
+end
 
 % ============ 依赖函数目录（lut3d_rgb2xyz1 / xyz2lab / lab2xyz / deltaE2000） ============
 build_dir = fullfile( ...
@@ -59,7 +75,7 @@ fprintf('使用 LUTfore_file: %s\n', LUTfore_file);
 % LUTfore_file_A：A 侧（file_matlab）所用的 RGB→XYZ 前向 3D-LUT
 % gpu_vs_phase1 / gpu_vs_phase_all 的 A 侧是 phase1（rendered_2max）数据，需用 ipv35 LUT
 % 其余模式（gpu_vs_matlab）A 侧沿用 ipv30 LUT
-if strcmp(compare_source, 'gpu_vs_phase1') || strcmp(compare_source, 'gpu_vs_phase_all')
+if strcmp(compare_source, 'gpu_vs_phase1') || strcmp(compare_source, 'gpu_vs_phase_all') || strcmp(compare_source, 'gpu_vs_phase_jpg')
     LUTfore_file_A = resolve_existing({ ...
         fullfile(build_dir, 'model_interp', 'datai_ipv35_3.mat'), ...   % build 下副本
         fullfile(fileparts(build_dir), 'datai_ipv35_3.mat')});          % display_model 顶层
@@ -69,12 +85,18 @@ end
 fprintf('使用 LUTfore_file_A: %s\n', LUTfore_file_A);
 
 % ===================== 结果收集（每对 png 一行） =====================
-is_phase_all = strcmp(compare_source, 'gpu_vs_phase_all');
+is_phase_all = strcmp(compare_source, 'gpu_vs_phase_all') || strcmp(compare_source, 'gpu_vs_phase_jpg');
 results = struct();
 row = 1;
 
 for mi = 1:numel(models)
     model = models{mi};
+    % model 子文件夹/文件名后缀：iOr='rs' 时用 'r'（实景），iOr='i' 时用 'i'（实验室）
+    if strcmp(iOr, 'rs')
+        model_dir = strcat(model, 'r');
+    else
+        model_dir = strcat(model, 'i');
+    end
     fprintf('\n############################################################\n');
     fprintf('##########  model = %s  ##########\n', model);
     fprintf('############################################################\n');
@@ -84,31 +106,56 @@ for mi = 1:numel(models)
     m_files  = {};
     switch compare_source
         case 'gpu_vs_matlab'
-            d_p = dir(fullfile(base_python, [model 'i'], 'no_uni', 'H3K_01*.png'));
-            assert(~isempty(d_p), 'Python 侧未找到 H3K_01*.png: %s', [model 'i']);
-            d_m = dir(fullfile(base_matlab, [model 'i'], 'no_uni', 'H3K_01*.png'));
-            assert(~isempty(d_m), 'MATLAB 侧未找到 H3K_01*.png: %s', [model 'i']);
+            d_p = dir(fullfile(base_python, model_dir, 'no_uni', 'H3K_01*.png'));
+            assert(~isempty(d_p), 'Python 侧未找到 H3K_01*.png: %s', model_dir);
+            d_m = dir(fullfile(base_matlab, model_dir, 'no_uni', 'H3K_01*.png'));
+            assert(~isempty(d_m), 'MATLAB 侧未找到 H3K_01*.png: %s', model_dir);
             py_files{1} = fullfile(d_p(1).folder, d_p(1).name);
             m_files{1}  = fullfile(d_m(1).folder, d_m(1).name);
         case 'gpu_vs_phase1'
-            d_p = dir(fullfile(base_python, [model 'i'], 'no_uni', 'H3K_01*.png'));
-            assert(~isempty(d_p), 'Python 侧未找到 H3K_01*.png: %s', [model 'i']);
+            d_p = dir(fullfile(base_python, model_dir, 'no_uni', 'H3K_01*.png'));
+            assert(~isempty(d_p), 'Python 侧未找到 H3K_01*.png: %s', model_dir);
             py_files{1} = fullfile(d_p(1).folder, d_p(1).name);
-            m_files{1}  = fullfile(base_matlab, [model 'i'], [model 'i' 'h3k_01.jpg']);
+            m_files{1}  = fullfile(base_matlab, model_dir, [model_dir 'h3k_01.jpg']);
             assert(exist(m_files{1}, 'file') == 2, 'phase1 侧未找到文件: %s', m_files{1});
         case 'gpu_vs_phase_all'
-            d_p = dir(fullfile(base_python, [model 'i'], 'no_uni', '*.png'));
-            assert(~isempty(d_p), 'Python 侧未找到任何 png: %s', [model 'i']);
+            d_p = dir(fullfile(base_python, model_dir, 'no_uni', '*.png'));
+            assert(~isempty(d_p), 'Python 侧未找到任何 png: %s', model_dir);
             for k = 1:numel(d_p)
                 toks = regexp(d_p(k).name, '^([^_]+)_(\d+)', 'tokens', 'once');
                 assert(~isempty(toks), '无法解析 Python 文件名: %s', d_p(k).name);
                 scene = toks{1};                       % 'H3K'
                 idx   = toks{2};                       % '01'
                 py_files{k} = fullfile(d_p(k).folder, d_p(k).name);
-                m_files{k}  = fullfile(base_matlab, [model 'i'], ...
-                    [model 'i' lower(scene) '_' idx '.jpg']);
+                m_files{k}  = fullfile(base_matlab, model_dir, ...
+                    [model_dir lower(scene) '_' idx '.jpg']);
                 assert(exist(m_files{k}, 'file') == 2, ...
                     'phase1 侧未找到文件: %s', m_files{k});
+            end
+        case 'gpu_vs_phase_jpg'
+            d_p = dir(fullfile(base_python, model_dir, '*.jpg'));
+            if isempty(d_p)
+                fprintf('Python 侧未找到任何 jpg（跳过该 model）: %s\n', model_dir);
+                continue;
+            end
+            n_pair = 0;
+            for k = 1:numel(d_p)
+                toks = regexp(d_p(k).name, '^([^_]+)_(\d+)', 'tokens', 'once');
+                if isempty(toks)
+                    fprintf('无法解析 Python 文件名（跳过）: %s\n', d_p(k).name);
+                    continue;
+                end
+                scene = toks{1};                       % 'H3K' / 'rs01' 等
+                idx   = toks{2};                       % '01'
+                m_file = fullfile(base_matlab, model_dir, ...
+                    [model_dir lower(scene) '_' idx '.jpg']);
+                if exist(m_file, 'file') ~= 2
+                    fprintf('phase1 侧未找到文件（跳过）: %s\n', m_file);
+                    continue;
+                end
+                n_pair = n_pair + 1;
+                py_files{n_pair} = fullfile(d_p(k).folder, d_p(k).name);
+                m_files{n_pair}  = m_file;
             end
         otherwise
             error('未知 compare_source: %s', compare_source);
@@ -135,21 +182,28 @@ for mi = 1:numel(models)
     fprintf('图像尺寸: %d x %d x %d\n\n', size(A,1), size(A,2), size(A,3));
 
     % ===================== 读取 CardMask 遮罩（二值化=1 的区域不参与计算） =====================
+    % iOr='rs' 时 use_cardmask=false：跳过整套掩膜逻辑，exclude_mask 全 0
     [~, py_name, py_ext] = fileparts(file_python);
-    scene = regexp([py_name py_ext], '^[^_]+', 'match', 'once');   % 'H3K_01[...].png' -> 'H3K'
-    cardmask_path = fullfile(stimuli_root, 'CardMask', model, [scene '.JPG']);
-    assert(exist(cardmask_path, 'file') == 2, '未找到 CardMask 遮罩: %s', cardmask_path);
-    cardmask = imread(cardmask_path);
-    if size(cardmask, 3) == 3
-        cardmask = rgb2gray(cardmask);
+    if use_cardmask
+        scene = regexp([py_name py_ext], '^[^_]+', 'match', 'once');   % 'H3K_01[...].png' -> 'H3K'
+        cardmask_path = fullfile(stimuli_root, 'CardMask', model, [scene '.JPG']);
+        assert(exist(cardmask_path, 'file') == 2, '未找到 CardMask 遮罩: %s', cardmask_path);
+        cardmask = imread(cardmask_path);
+        if size(cardmask, 3) == 3
+            cardmask = rgb2gray(cardmask);
+        end
+        cardmask_bw = imbinarize(cardmask);                                     % 二值化：1 = 前景（卡片）区域
+        cardmask_bw = imresize(cardmask_bw, [size(A,1) size(A,2)], 'nearest'); % 对齐 A/B 尺寸
+        exclude_mask = logical(cardmask_bw);                                    % 1 = 不参与计算的像素
+        n_valid = nnz(~exclude_mask);                                           % 有效像素数（单通道）
+        fprintf('CardMask: %s  排除像素=%d (%.2f%%)\n', ...
+            cardmask_path, numel(exclude_mask) - n_valid, ...
+            100 * (numel(exclude_mask) - n_valid) / numel(exclude_mask));
+    else
+        exclude_mask = false(size(A,1), size(A,2));                             % 实景：不排除任何像素
+        n_valid = nnz(~exclude_mask);
+        fprintf('CardMask: 已禁用，排除像素=0 (0.00%%)\n');
     end
-    cardmask_bw = imbinarize(cardmask);                                     % 二值化：1 = 前景（卡片）区域
-    cardmask_bw = imresize(cardmask_bw, [size(A,1) size(A,2)], 'nearest'); % 对齐 A/B 尺寸
-    exclude_mask = logical(cardmask_bw);                                    % 1 = 不参与计算的像素
-    n_valid = nnz(~exclude_mask);                                           % 有效像素数（单通道）
-    fprintf('CardMask: %s  排除像素=%d (%.2f%%)\n', ...
-        cardmask_path, numel(exclude_mask) - n_valid, ...
-        100 * (numel(exclude_mask) - n_valid) / numel(exclude_mask));
 
     if ~is_phase_all
     % ===================== 逐像素计算差异 =====================

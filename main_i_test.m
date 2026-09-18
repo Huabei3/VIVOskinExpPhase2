@@ -17,10 +17,14 @@ handle.LUT_type = "phase2";
 handle.save_format = "png";
 % uni_mode: "True"=去重(uniquetol，默认)，"False"=不去重(逐行 KNN)
 handle.uni_mode = "False";
+% force_rerender: "True"=强制重渲染（忽略已存在的输出图），"False"=已存在则跳过
+% 只影响「是否重新渲染」；noFaceRGB 缓存仍按「文件存在则复用」，与 Python 的 --force 行为一致
+handle.force_rerender = "True";
 % 是否去重：uni_mode="True" -> 去重(uni)，否则不去重(no_uni)
 if_uni = strcmp(handle.uni_mode, "True");
 % 是否启用 ./6 小图 resize（"先跑小图看问题"）：true=启用，false=关闭（默认）
-if_small = false;
+% if_small = false;
+if_small = true;
 if strcmp(handle.LUT_type, "phase2")
     datai_file = '..\A_characterization\display_model\data_ipv30_phase2_3.mat';
 else
@@ -206,10 +210,13 @@ for i_model=1:length(new_names)
             search_name=strcat(files(i).name(1:end-4),'_',sprintf('%02d', i_points), ...
                 '[',num2str(dlab(1,1)),',' ,...
                 num2str(dlab(1,2)),',',num2str(dlab(1,3)),'].',char(handle.save_format));
-            dir_img_file=dir(fullfile(save_folder,search_name));
-            % if ~isempty(dir_img_file)
-            %     continue
-            % end
+            % force_rerender="True" 时跳过「已存在」检查，强制重渲染（对齐 Python main_i.py --force）
+            if ~strcmp(handle.force_rerender, "True")
+                dir_img_file=dir(fullfile(save_folder,search_name));
+                if ~isempty(dir_img_file)
+                    continue
+                end
+            end
 
 
 
@@ -217,7 +224,7 @@ for i_model=1:length(new_names)
             outnew_file=fullfile(save_folder, strcat(search_name(1:end-4), "_outnew.mat"));
 
             % png 模式：若已有 *_outnew.mat，直接导出 png 跳过渲染
-            if strcmp(handle.save_format, "png") && exist(outnew_file, 'file') == 2
+            if ~strcmp(handle.force_rerender, "True") && strcmp(handle.save_format, "png") && exist(outnew_file, 'file') == 2
                 S = load(outnew_file, 'outnew_img');
                 imwrite(S.outnew_img, fullfile(save_folder, search_name));
                 disp([search_name, ' exported from _outnew.mat (skip render)']);
