@@ -47,8 +47,9 @@ def main():
     ap.add_argument("--save-mats", action="store_true", help="同时保存调试 mat")
     ap.add_argument("--save-format", choices=["jpg", "png"], default="jpg",
                     help="输出格式：jpg（默认，JPEG quality 同上）/ png（无损；若已存在 *_outnew.mat 则直接导出跳过渲染）")
-    ap.add_argument("--dedup-mode", choices=["matlab", "fast"], default="fast",
-                    help="LUT 去重语义：matlab=uniquetol 容差 / fast=round 加速（默认）")
+    ap.add_argument("--dedup-mode", choices=["matlab", "fast", "none"], default="fast",
+                    help="LUT 去重语义：matlab=uniquetol 容差 / fast=round 加速（默认）/ "
+                         "none=不去重（逐行独立 KNN；等价 --no-uni）")
     ap.add_argument("--resize-factor", type=float, default=None,
                     help="把 img/bull/bull_nosd/XYZ 缩小到 1/N，默认不缩放")
     ap.add_argument("--uni", action=argparse.BooleanOptionalAction, default=None,

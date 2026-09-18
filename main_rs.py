@@ -162,6 +162,10 @@ def render_subject(model: str, names: list[str] | None = None,
     if gpu:
         save_folder = save_folder / "gpu"   # GPU 版输出独立目录，与 CPU 版 main_rs 区分（对齐 main_i_gpu）
     save_folder = save_folder / LUT_TYPE / "rs" / lastPart  # Python 独立目录，避免覆盖 MATLAB 结果
+    # 与 LUT 去重语义挂钩（对齐 main_i.py L181-182 与 MATLAB rendered\{LUT_type}\rs\{lastPart}\{uni|no_uni}）：
+    # 不去重 -> no_uni，去重(matlab/fast) -> uni。
+    # 分级还能避免 noFaceRGB 缓存跨「去重语义」串档（缓存只按图名存，不按 dedup_mode 存）。
+    save_folder = save_folder / ("no_uni" if dedup_mode == "none" else "uni")
     save_folder.mkdir(parents=True, exist_ok=True)
 
     # ---------- num_points 循环外读 L7-8 ----------
@@ -311,8 +315,9 @@ def main():
                     help="只渲染第 N 个点（1-based，对齐 for i_points=[startCenter]）")
     ap.add_argument("--save-mats", action="store_true",
                     help="同时保存调试 mat（xyz2/outnew，默认只出 jpg）")
-    ap.add_argument("--dedup-mode", choices=["matlab", "fast"], default="fast",
-                    help="LUT 去重语义：matlab=uniquetol 容差（1:1 一致）/ fast=round 加速（默认）")
+    ap.add_argument("--dedup-mode", choices=["matlab", "fast", "none"], default="fast",
+                    help="LUT 去重语义：matlab=uniquetol 容差（1:1 一致）/ fast=round 加速（默认）/ "
+                         "none=不去重（逐行独立 KNN，1:1 对齐 MATLAB lut3d_xyz2rgbKDitp1_noUni）")
     args = ap.parse_args()
 
     subs = args.subs if args.subs else NEW_NAMES

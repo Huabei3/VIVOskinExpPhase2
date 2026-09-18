@@ -353,8 +353,9 @@ def main():
                     help="只渲染第 N 个点（1-based，对齐 for i_points=[startCenter]）")
     ap.add_argument("--save-mats", action="store_true",
                     help="同时保存调试 mat（xyz2/outnew/delta_lab/lab2，默认只出 jpg）")
-    ap.add_argument("--dedup-mode", choices=["matlab", "fast"], default="fast",
-                    help="LUT 去重语义：matlab=uniquetol 容差（1:1 一致）/ fast=round 加速（默认）")
+    ap.add_argument("--dedup-mode", choices=["matlab", "fast", "none"], default="fast",
+                    help="LUT 去重语义：matlab=uniquetol 容差（1:1 一致）/ fast=round 加速（默认）/ "
+                         "none=不去重（逐行独立 KNN；等价 --no-uni）")
     ap.add_argument("--resize-factor", type=float, default=None,
                     help="把 img/bull/bull_nosd/XYZ 缩小到 1/N（对齐 main_i_test.m 的 ./6 四行 resize），默认不缩放")
     ap.add_argument("--uni", action=argparse.BooleanOptionalAction, default=None,
