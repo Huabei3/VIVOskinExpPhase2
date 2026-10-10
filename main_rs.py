@@ -23,12 +23,15 @@ MATLAB 源: I_render_stimuli\main_rs_test.m（基于 main_rs.m，应用 i_test �
   search_name       -> {stem}_{02d}[%.4f,%.4f,%.4f].jpg          L141-143
   渲染              -> img_AddRender_simp('LUT', phase2)  L160-162
   保存              -> imwrite jpg（MATLAB 默认 quality=75）
+  if_small          -> --resize-factor N（默认 None=不缩放），img/bull/XYZ 三处 ./6 resize
+                       + 输出多一级 small（对齐 main_rs_test.m if_small 分支）
 
 用法:
   python main_rs.py                      # 全部 20 个 subject
   python main_rs.py --subs f04r f05r     # 指定 subject（可带 r 后缀）
   python main_rs.py --dry-run            # 只打印计划不渲染
   python main_rs.py --first-only --point 1   # 对齐测试模式：第1张图第1个点
+  python main_rs.py --resize-factor 6    # 对齐 main_rs_test.m 的 if_small=true（小图模式）
 """
 from __future__ import annotations
 
@@ -49,6 +52,7 @@ from color_utils import xyz2lab
 from mask import get_average
 from cat_adjust import CAT_lab2lab1, adjust_dlabs_shape1, adjust_dlabs
 from render_core import img_AddRender_simp
+from matlab_resize import imresize_matlab
 
 I_ROOT = ROOT.parent / "I_render_stimuli"
 PROJ = I_ROOT.parent
@@ -121,11 +125,25 @@ def _match_rs_xyz(stem: str, paths: list[Path]) -> Path | None:
     return None
 
 
+def _imresize_div(a: np.ndarray, factor: float) -> np.ndarray:
+    """对齐 MATLAB imresize(a, [H/factor, W/factor])：精确复现 bicubic(Keys a=-0.5)+抗锯齿。
+
+    与 main_i.py L117-128 同一份实现（main_i_test.m / main_rs_test.m 的 ./6 语义一致）。
+    """
+    if a.ndim < 2:
+        return a
+    H, W = a.shape[0], a.shape[1]
+    new_H = int(np.ceil(H / factor))
+    new_W = int(np.ceil(W / factor))
+    return imresize_matlab(a, [new_H, new_W])
+
+
 def render_subject(model: str, names: list[str] | None = None,
                    quality: int = 75, dry_run: bool = False,
                    force: bool = False, points: int | None = None,
                    first_only: bool = False, point: int | None = None,
                    save_mats: bool = False, dedup_mode: str = "fast",
+                   resize_factor: float | None = None,
                    device: str = "auto", gpu: bool = False) -> dict:
     lastPart = model + "r"
     # 修正：原 main_rs.m L37 误写 "f04i" 等（i 后缀，rs 组恒不匹配→if_wei 恒 1）
@@ -162,6 +180,12 @@ def render_subject(model: str, names: list[str] | None = None,
     if gpu:
         save_folder = save_folder / "gpu"   # GPU 版输出独立目录，与 CPU 版 main_rs 区分（对齐 main_i_gpu）
     save_folder = save_folder / LUT_TYPE / "rs" / lastPart  # Python 独立目录，避免覆盖 MATLAB 结果
+    if resize_factor is not None:      # 有 ./6 逻辑 -> 在 {lastPart} 后加一级 small（对齐 main_i.py L179-180）
+        save_folder = save_folder / "small"
+    # 与 LUT 去重语义挂钩（对齐 main_i.py L181-182 与 MATLAB rendered\{LUT_type}\rs\{lastPart}\{uni|no_uni}）：
+    # 不去重 -> no_uni，去重(matlab/fast) -> uni。
+    # 分级还能避免 noFaceRGB 缓存跨「去重语义」串档（缓存只按图名存，不按 dedup_mode 存）。
+    save_folder = save_folder / ("no_uni" if dedup_mode == "none" else "uni")
     save_folder.mkdir(parents=True, exist_ok=True)
 
     # ---------- num_points 循环外读 L7-8 ----------
@@ -194,16 +218,22 @@ def render_subject(model: str, names: list[str] | None = None,
     for i, fp in enumerate(files):
         stem = fp.stem
         img0 = imread(str(fp))
+        if resize_factor is not None:
+            img0 = _imresize_div(img0, resize_factor)  # 对齐 main_rs_test.m: imresize(img0,[H/6,W/6])
         img = im2double(img0)
         m, n = img.shape[0], img.shape[1]
 
         # ---------- 找 bull/XYZ L67-83 ----------
         bull = imread(str(fp))  # dir_mask 与 files 同目录同名
+        if resize_factor is not None:
+            bull = _imresize_div(bull, resize_factor)
         xyz_p = _match_rs_xyz(stem, dir_XYZfile)
         if xyz_p is None:
             print(f"[{lastPart}/{stem}] WARN no XYZ file, skip")
             continue
         XYZ = load_xyz(str(xyz_p))["XYZ_cropped"]
+        if resize_factor is not None:
+            XYZ = _imresize_div(XYZ, resize_factor)
 
         xyz1 = XYZ.reshape(m * n, 3)
         lab1 = xyz2lab(xyz1, 'user', wd65_scaled)
@@ -311,8 +341,11 @@ def main():
                     help="只渲染第 N 个点（1-based，对齐 for i_points=[startCenter]）")
     ap.add_argument("--save-mats", action="store_true",
                     help="同时保存调试 mat（xyz2/outnew，默认只出 jpg）")
-    ap.add_argument("--dedup-mode", choices=["matlab", "fast"], default="fast",
-                    help="LUT 去重语义：matlab=uniquetol 容差（1:1 一致）/ fast=round 加速（默认）")
+    ap.add_argument("--dedup-mode", choices=["matlab", "fast", "none"], default="fast",
+                    help="LUT 去重语义：matlab=uniquetol 容差（1:1 一致）/ fast=round 加速（默认）/ "
+                         "none=不去重（逐行独立 KNN，1:1 对齐 MATLAB lut3d_xyz2rgbKDitp1_noUni）")
+    ap.add_argument("--resize-factor", type=float, default=None,
+                    help="把 img/bull/XYZ 缩小到 1/N（对齐 main_rs_test.m 的 if_small 三处 ./6 resize），默认不缩放")
     args = ap.parse_args()
 
     subs = args.subs if args.subs else NEW_NAMES
@@ -324,7 +357,7 @@ def main():
             continue
         render_subject(model, args.names, args.quality, args.dry_run, args.force,
                        args.points, args.first_only, args.point, args.save_mats,
-                       args.dedup_mode)
+                       args.dedup_mode, args.resize_factor)
 
 
 if __name__ == "__main__":

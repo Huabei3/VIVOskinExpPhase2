@@ -48,8 +48,11 @@ def main():
                     help="只渲染第 N 个点（1-based，对齐 for i_points=[startCenter]）")
     ap.add_argument("--save-mats", action="store_true",
                     help="同时保存调试 mat（xyz2/outnew，默认只出 jpg）")
-    ap.add_argument("--dedup-mode", choices=["matlab", "fast"], default="fast",
-                    help="LUT 去重语义：matlab=uniquetol 容差（1:1 一致）/ fast=round 加速（默认）")
+    ap.add_argument("--dedup-mode", choices=["matlab", "fast", "none"], default="fast",
+                    help="LUT 去重语义：matlab=uniquetol 容差（1:1 一致）/ fast=round 加速（默认）/ "
+                         "none=不去重（逐行独立 KNN，1:1 对齐 MATLAB lut3d_xyz2rgbKDitp1_noUni）")
+    ap.add_argument("--resize-factor", type=float, default=None,
+                    help="把 img/bull/XYZ 缩小到 1/N（对齐 main_rs_test.m 的 if_small 三处 ./6 resize），默认不缩放")
     args = ap.parse_args()
 
     subs = args.subs if args.subs else base.NEW_NAMES
@@ -61,7 +64,8 @@ def main():
             continue
         base.render_subject(model, args.names, args.quality, args.dry_run, args.force,
                             args.points, args.first_only, args.point, args.save_mats,
-                            args.dedup_mode, device="cuda", gpu=True)
+                            args.dedup_mode, resize_factor=args.resize_factor,
+                            device="cuda", gpu=True)
 
 
 if __name__ == "__main__":
