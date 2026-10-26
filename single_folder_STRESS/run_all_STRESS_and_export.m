@@ -5,15 +5,15 @@ function run_all_STRESS_and_export(groups_override, skip_fit)
 %
 % -------------------------------------------------------------------------
 % 做什么
-%   步骤1 对 D:\work\VIVOSkin_phase2\ExpRes\renamed 下的每个 {model}{i/r} 组：
-%         令 source_folder = 'D:\work\VIVOSkin_phase2\ExpRes\renamed\{model}{i/r}';
+%   步骤1 对 ExpRes\renamed\{nation}\{model}{i/r} 下的每个组（nation = AF / SA）：
+%         令 source_folder = ...\renamed\{nation}\{model}{i/r};
 %         然后运行 cal_STRESS.m
 %         => 对组内每个 obs_XX 子文件夹调用 process_data_stress，
 %            产出 {group}\obs_XX\stress_mat\STRESS.mat
 %   步骤2 读取所有 STRESS.mat，汇总成一个 xlsx：
 %           行 = 一个 {model}{i/r}（只列磁盘上真实存在的组）
-%           列 = obs01 .. obs05
-%         缺失的 (组, obs) 组合写 NaN
+%           列 = obs01 .. obs10（AF 每批最多 10 人；SA 只用前 5 列）
+%         缺失的 (组, obs) 组合写 NaN；行标签带 nation, 如 'AF/f04i' / 'SA/f07i'
 %   步骤3 按“是哪一批 observer 做的”把行拆到不同 sheet：
 %           sheet 'STRESS_inter_mean_B1' / 'STRESS_inter_mean_B2'
 %           sheet 'STRESS_intra_mean_B1' / 'STRESS_intra_mean_B2'
@@ -53,7 +53,12 @@ function run_all_STRESS_and_export(groups_override, skip_fit)
     CAL_STRESS_M = fullfile(STRESS_DIR, 'cal_STRESS.m');   % 被驱动的脚本（唯一计算来源）
     OUT_XLSX     = fullfile(STRESS_DIR, 'STRESS_interNintra_mean_by_obs.xlsx');
 
-    MAX_OBS      = 5;      % 列固定为 obs_01..obs_05
+    % --- nation 维度: 目录结构 renamed\{nation}\{model}{i/r}\obs_XX\obsXX_YY.csv ---
+    % 同名组 (f04i/f07i/...) 在 AF 与 SA 下都有数据, 且 obs 编号各自从 1 开始,
+    % 因此行标签写成 'AF/f04i'; AF 每批最多 10 人 -> 列开到 obs10,
+    % SA 只用 obs01..obs05, 其余列留 NaN
+    NATIONS      = {'AF', 'SA'};
+    MAX_OBS      = 10;     % 列固定为 obs_01..obs_10
 
     % --- 两批 observer 各自做了哪些组（写文件夹名，不带结尾的 i/r）---
     % 拆 sheet 的唯一依据；以后要改批次归属，只改这里
@@ -72,12 +77,33 @@ function run_all_STRESS_and_export(groups_override, skip_fit)
     addpath(fullfile(ANALYZE, 'utils'));          % mapMatrixValues.m / STRESS.m
 
 %% ================= 组列表 =================
-    d = dir(ROOT);
-    d = d([d.isdir] & ~ismember({d.name}, {'.', '..'}));
-    groups = sort({d.name});
+    groups    = {};      % 行标签, 形如 'AF/f04i'
+    groupDirs = {};      % 与 groups 一一对应的绝对目录
+    for i_nat = 1:numel(NATIONS)
+        nat  = NATIONS{i_nat};
+        nDir = fullfile(ROOT, nat);
+        if ~isfolder(nDir)
+            fprintf('[跳过] nation 目录不存在: %s\n', nDir);
+            continue
+        end
+        d = dir(nDir);
+        d = d([d.isdir] & ~ismember({d.name}, {'.', '..'}));
+        gNat = sort({d.name});
+        for i = 1:numel(gNat)
+            groups{end+1, 1}    = sprintf('%s/%s', nat, gNat{i});   %#ok<SAGROW>
+            groupDirs{end+1, 1} = fullfile(nDir, gNat{i});          %#ok<SAGROW>
+        end
+    end
 
     if nargin >= 1 && ~isempty(groups_override)
-        groups = groups_override;                 % 调试：只跑指定组
+        % 调试：入参写 'f04i' 或 'AF/f04i' 都能匹配
+        keep = false(numel(groups), 1);
+        for i = 1:numel(groups)
+            keep(i) = ismember(groups{i}, groups_override) || ...
+                      ismember(strip_nation(groups{i}), groups_override);
+        end
+        groups    = groups(keep);
+        groupDirs = groupDirs(keep);
     end
 
     fprintf('数据根目录 : %s\n', ROOT);
@@ -114,8 +140,8 @@ function run_all_STRESS_and_export(groups_override, skip_fit)
     old_dir  = cd(ANALYZE);   % 让 cal_STRESS.m 里相对的 addpath("utils\") 能命中
 
     for g = 1:numel(groups)
-        group   = groups{g};
-        grp_dir = fullfile(ROOT, group);
+        group   = groups{g};               % 'AF/f04i'
+        grp_dir = groupDirs{g};            % {nation}\{group} 的绝对路径
 
         if exist(grp_dir, 'dir') ~= 7
             fprintf('[跳过] %s：目录不存在\n', group);
@@ -147,7 +173,7 @@ function run_all_STRESS_and_export(groups_override, skip_fit)
 
     for g = 1:numel(groups)
         for o = 1:MAX_OBS
-            mat_path = fullfile(ROOT, groups{g}, sprintf('obs_%02d', o), ...
+            mat_path = fullfile(groupDirs{g}, sprintf('obs_%02d', o), ...
                                 'stress_mat', 'STRESS.mat');
             if exist(mat_path, 'file') ~= 2
                 continue                              % 无该 obs -> 保持 NaN
@@ -176,7 +202,7 @@ function run_all_STRESS_and_export(groups_override, skip_fit)
     batch_id = zeros(numel(groups), 1);
     for b = 1:size(BATCHES, 1)
         for g = 1:numel(groups)
-            if ismember(strip_ir(groups{g}), BATCHES{b, 2})
+            if ismember(strip_ir(strip_nation(groups{g})), BATCHES{b, 2})
                 batch_id(g) = b;
             end
         end
@@ -248,6 +274,14 @@ function run_all_STRESS_and_export(groups_override, skip_fit)
 end
 
 %% ---------- 局部函数 ----------
+function s = strip_nation(s)
+%STRIP_NATION 'AF/f04i' -> 'f04i'（没有 nation 前缀时原样返回）
+p = find(s == '/', 1, 'last');
+if ~isempty(p)
+    s = s(p + 1:end);
+end
+end
+
 function s = strip_ir(s)
 %STRIP_IR 'f04i' / 'f04r' -> 'f04'（去掉结尾的 i 或 r，用来查批次）
 if ~isempty(s) && (s(end) == 'i' || s(end) == 'r')

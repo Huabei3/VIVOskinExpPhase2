@@ -18,8 +18,13 @@
 close all; clc; clear;
 
 %% ---------- 模块 1: 配置区 ----------
-SRC_DIR  = 'D:\work\VIVOSkin_phase2\ExpRes\renamed';
-OUT_XLSX = 'D:\work\VIVOSkin_phase2\analyze\data_integrity_renamed.xlsx';
+% 目录结构: ExpRes\renamed\{nation}\{model}{i/r}\obs_{i_obs}\obs{i_obs}_{i_attr}.csv
+% 一次检查一个 nation（同名组在 AF / SA 下 observer 是不同的人，必须分开看）
+NATION = 'AF';          % ← 改成 'SA' 再跑一次
+RENAMED_ROOT = 'D:\work\VIVOSkin_phase2\ExpRes\renamed';
+SRC_DIR  = fullfile(RENAMED_ROOT, NATION);
+OUT_XLSX = fullfile('D:\work\VIVOSkin_phase2\analyze', ...
+    sprintf('data_integrity_renamed_%s.xlsx', NATION));
 
 ADD_SUMMARY   = true;   % false = 不输出 SUM 首页
 CHECK_CONTENT = true;   % true  = 逐个打开规范文件统计行数/列数/刺激项集合
@@ -31,10 +36,12 @@ COLOR_TF  = true;       % true = 写完后用 Excel COM 给 TRUE 格填绿 / FAL
 CLR_TRUE  = 13561798;   % 浅绿 #C6EFCE (Excel 的 Interior.Color 是 BGR 整数)
 CLR_FALSE = 13551615;   % 浅红 #FFC7CE
 
-OBS_NAMES = ["Malvin","Jerome","moussa","viva","philippe"];
+% 行数 = 该 nation 的最大 obs 编号（AF 每批最多 10 人；SA 只有 5 人）
+% 注：同一个 obs 编号对应的人名随批次 (A/B/C) 变化，矩阵行标签只用 obsNN，不写人名
+OBS_COUNT_BY_NATION = struct('AF', 10, 'SA', 5);
 ATTRIBUTES = ["Preference","Attractiveness","Feminine","Cooperative", ...
               "Youth","Healthy","Fidelity","Harmony","Fair","Ruddy"];
-OBS_SERIALS = 1:numel(OBS_NAMES);
+OBS_SERIALS = 1:OBS_COUNT_BY_NATION.(NATION);
 
 nObs = numel(OBS_SERIALS);  nAttr = numel(ATTRIBUTES);
 
@@ -56,8 +63,7 @@ for g = 1:nGroup
     gName = groupNames{g};
     rowLabel = strings(nObs,1);
     for i = 1:nObs
-        s = OBS_SERIALS(i);
-        rowLabel(i) = sprintf('obs%02d_%s', s, OBS_NAMES(s));
+        rowLabel(i) = sprintf('obs%02d', OBS_SERIALS(i));
     end
     mat = strings(nObs,nAttr);
     for i = 1:nObs
@@ -257,7 +263,7 @@ for g = 1:nGroup
         for a = 1:nAttr
             if mats{g}(i,a) == "FALSE"
                 mg(end+1,1) = string(groupNames{g});                       %#ok<SAGROW>
-                mo(end+1,1) = sprintf('obs%02d_%s', OBS_SERIALS(i), OBS_NAMES(OBS_SERIALS(i))); %#ok<SAGROW>
+                mo(end+1,1) = sprintf('obs%02d', OBS_SERIALS(i));             %#ok<SAGROW>
                 ma(end+1,1) = ATTRIBUTES(a);                               %#ok<SAGROW>
             end
         end

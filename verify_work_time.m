@@ -3,7 +3,7 @@ function verify_work_time(srcXlsx, outXlsx, reportXlsx)
 %
 % 校验规则
 %   ① 表内 File Created Time / Last Score Time / Time Difference (hours)
-%      是否与 ExpRes\renamed\{model}\obs_{XX}\obs{XX}_{YY}.csv 尾三行一致，
+%      是否与 ExpRes\renamed\{nation}\{model}\obs_{XX}\obs{XX}_{YY}.csv 尾三行一致，
 %      并用 ExpRes\com.example.{model}{i/r}p2\*.csv 交叉验证（同一 created/last 的原始输出）
 %   ② 每列 Added Time 是否等于该列所有 Time Difference (hours) 之和；
 %      Added Time with Rest 是否等于 Added Time + n/6（每个 file 多计 10 分钟）
@@ -108,19 +108,46 @@ if ~isfolder(root)
     warning('renamed 目录不存在: %s', root);
     return;
 end
-models = dir(root);
-for i = 1:numel(models)
-    if ~models(i).isdir || startsWith(models(i).name, '.')
+% 兼容两种布局:
+%   renamed\{model}\obs_XX\...             旧: nation 未拆分
+%   renamed\{nation}\{model}\obs_XX\...    新: 先 nation 再组 (AF / SA)
+% model 仍只存组名 (f04i ...), 与 work time 表里第 1 列一致;
+% 同一组在 AF/SA 下各有一套 obs_XX, 靠 created/last 时间戳区分, 不会混淆
+modelDirs = {};
+top = dir(root);
+for i = 1:numel(top)
+    if ~top(i).isdir || startsWith(top(i).name, '.')
         continue;
     end
-    model = models(i).name;
-    obsDirs = dir(fullfile(root, model, 'obs_*'));
+    p1 = fullfile(root, top(i).name);
+    if ~isempty(dir(fullfile(p1, 'obs_*')))
+        modelDirs{end+1, 1} = top(i).name;      %#ok<SAGROW>
+        modelDirs{end,   2} = p1;               %#ok<SAGROW>
+        continue
+    end
+    sub = dir(p1);
+    for q = 1:numel(sub)
+        if ~sub(q).isdir || startsWith(sub(q).name, '.')
+            continue;
+        end
+        p2 = fullfile(p1, sub(q).name);
+        if ~isempty(dir(fullfile(p2, 'obs_*')))
+            modelDirs{end+1, 1} = sub(q).name;  %#ok<SAGROW>
+            modelDirs{end,   2} = p2;           %#ok<SAGROW>
+        end
+    end
+end
+
+for i = 1:size(modelDirs, 1)
+    model    = modelDirs{i, 1};
+    modelDir = modelDirs{i, 2};
+    obsDirs = dir(fullfile(modelDir, 'obs_*'));
     for j = 1:numel(obsDirs)
         if ~obsDirs(j).isdir
             continue;
         end
         xx   = regexprep(obsDirs(j).name, '^obs_', '');
-        csvs = dir(fullfile(root, model, obsDirs(j).name, 'obs*_*.csv'));
+        csvs = dir(fullfile(modelDir, obsDirs(j).name, 'obs*_*.csv'));
         for k = 1:numel(csvs)
             tok = regexp(csvs(k).name, '^obs(\d{2})_(\d{2})\.csv$', 'tokens', 'once');
             if isempty(tok)

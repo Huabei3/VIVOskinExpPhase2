@@ -1,0 +1,18 @@
+# ============================================================
+# analyze 分支只放 MATLAB 源码与结果表: 只追踪 *.m / *.xlsx
+# 其余 (jpg / mat / py / json / txt / csv / asv) 一律不追踪
+# ============================================================
+# 1) 先排除一切
+*
+# 2) 允许目录递归 (否则子目录里的文件根本没机会被白名单匹配)
+!*/
+# 3) 白名单
+!.gitignore
+!*.m
+!*.xlsx
+
+# 4) 单个文件 >50MB 会被 GitHub 直接拒收, 即便它是 xlsx 也不推
+documents/combined_data1.xlsx
+documents/skinColorofModels/VIVO-skindata-0913.xlsx
+documents/skinColorofModels/已选模特数据汇总1.xlsx
+documents/skinColorofModels/已选模特数据汇总.xlsx

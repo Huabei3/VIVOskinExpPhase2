@@ -2,7 +2,8 @@ function fill_work_time()
 %FILL_WORK_TIME  根据 CSV 元信息填充 ExpRes\work time.xlsx 中所有空白单元格
 %
 % 数据源（按优先级）：
-%   1) ExpRes\renamed\{model}\obs_{XX}\obs{XX}_{YY}.csv      主数据源
+%   1) ExpRes\renamed\{nation}\{model}\obs_{XX}\obs{XX}_{YY}.csv   主数据源
+%      （两种布局都兼容：也有可能是旧的 renamed\{model}\obs_{XX}\）
 %   2) ExpRes\com.example.{model}{i/r}p2\*.csv               备用/交叉验证
 %      （尚未 rename 的数据，如 batch5）
 %
@@ -136,25 +137,51 @@ for k = 1:numel(src)
     tmap(key) = v;
 end
 
-models = dir(root);
-for i = 1:numel(models)
-    if ~models(i).isdir || startsWith(models(i).name, '.')
+% 兼容两种布局:
+%   renamed\{model}\obs_XX\...             旧: nation 未拆分
+%   renamed\{nation}\{model}\obs_XX\...    新: 先 nation 再组 (AF / SA)
+% model 仍只存组名 (f04i ...), 与 work time 表第 1 列一致
+modelDirs = {};
+top = dir(root);
+for i = 1:numel(top)
+    if ~top(i).isdir || startsWith(top(i).name, '.')
         continue;
     end
-    model = models(i).name;
-    obsDirs = dir(fullfile(root, model, 'obs_*'));
+    p1 = fullfile(root, top(i).name);
+    if ~isempty(dir(fullfile(p1, 'obs_*')))
+        modelDirs{end+1, 1} = top(i).name;      %#ok<SAGROW>
+        modelDirs{end,   2} = p1;               %#ok<SAGROW>
+        continue
+    end
+    sub = dir(p1);
+    for q = 1:numel(sub)
+        if ~sub(q).isdir || startsWith(sub(q).name, '.')
+            continue;
+        end
+        p2 = fullfile(p1, sub(q).name);
+        if ~isempty(dir(fullfile(p2, 'obs_*')))
+            modelDirs{end+1, 1} = sub(q).name;  %#ok<SAGROW>
+            modelDirs{end,   2} = p2;           %#ok<SAGROW>
+        end
+    end
+end
+
+for i = 1:size(modelDirs, 1)
+    model    = modelDirs{i, 1};
+    modelDir = modelDirs{i, 2};
+    obsDirs = dir(fullfile(modelDir, 'obs_*'));
     for j = 1:numel(obsDirs)
         if ~obsDirs(j).isdir
             continue;
         end
         obsXX = regexprep(obsDirs(j).name, '^obs_', '');
-        csvs = dir(fullfile(root, model, obsDirs(j).name, 'obs*_*.csv'));
+        csvs = dir(fullfile(modelDir, obsDirs(j).name, 'obs*_*.csv'));
         for k = 1:numel(csvs)
             tok = regexp(csvs(k).name, '^obs(\d{2})_(\d{2})\.csv$', 'tokens', 'once');
             if isempty(tok)
                 continue;
             end
-            fp = fullfile(root, model, obsDirs(j).name, csvs(k).name);
+            fp = fullfile(modelDir, obsDirs(j).name, csvs(k).name);
             info = read_csv_meta(fp);
             obsName = ''; attrName = '';
             key = sprintf('%s|%s|%s', model, info.created, info.last);

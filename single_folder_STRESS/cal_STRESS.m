@@ -13,7 +13,9 @@ addpath("utils\")
 
 %% 生成目录
 
-source_folder = 'D:\work\VIVOSkin_phase2\ExpRes\renamed\m10r'; 
+% 目录结构: ExpRes\renamed\{nation}\{model}{i/r}\obs_{i_obs}\obs{i_obs}_{i_attr}.csv
+% 本行由 run_all_STRESS_and_export.m 用锚点定位并替换 (必须恰好出现 1 次)
+source_folder = 'D:\work\VIVOSkin_phase2\ExpRes\renamed\AF\m10r'; 
 
 
 

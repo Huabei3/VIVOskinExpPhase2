@@ -26,13 +26,21 @@ lastParts = {'f04i', 'f05i', 'f06i', 'm04i', 'm05i', 'm06i',...
 % Dtype='noCAT';
 Dtype='efit_p';
 scale_type_origin="unscaled";
+%% 数据根目录 + nation 维度
+% 目录结构: ExpRes\renamed\{nation}\{model}{i/r}\obs_{i_obs}\obs{i_obs}_{i_attr}.csv
+% 同一个组名 (f04i / f07i / ...) 在 AF 和 SA 下可能同时存在, 但 observer 是不同的人,
+% 所以 nation 必须参与寻址, 也必须参与输出路径 (否则同名组的结果会互相覆盖)
+DATA_ROOT = 'D:\work\VIVOSkin_phase2\ExpRes\renamed';
+NATIONS   = {'AF', 'SA'};        % 只想跑一个 nation 就删掉另一个
+
 % for i_lastPart = [19]
+for i_nat = 1:numel(NATIONS)
+    nation = NATIONS{i_nat};
 for i_lastPart = 1:length(lastParts)
 % for i_lastPart = 1:length(lastParts)
     lastPart = lastParts{i_lastPart};
     %--------non-model-group-------------
-    source_folder = fullfile('D:\work\VIVOSkin_phase2\ExpRes\renamed', ...
-        lastPart); 
+    source_folder = fullfile(DATA_ROOT, nation, lastPart); 
     group_type=1;
     
     %--------model-group-------------
@@ -54,21 +62,9 @@ for i_lastPart = 1:length(lastParts)
     
 
     
-    source_folder1 = char(strrep(source_folder,"renamed\",""));
-    slashes = strfind(source_folder1, '\');
-    obs_type="non_model";
-    % obs_type=source_folder1(slashes(end) + 1:end);
-    model=lastPart(1:end-1);
-    nations=["AS","CA","SA","AF"];
-    if ismember(model,["f04", "f05", "f06","m04", "m05", "m06"])
-        nation=nations(1);
-    elseif ismember(model,["f01", "f02", "f03","m01", "m02", "m03"])
-        nation=nations(2);
-    elseif ismember(model,["f07", "f08","m07", "m08"])
-        nation=nations(3);
-    elseif ismember(model,["f09", "f10", "m09", "m10"])
-        nation=nations(4);
-    end
+    % 旧版"按 model 推 nation (AS/CA/SA/AF 四族裔)"的映射已作废：
+    % 现在 nation 由外层循环给出 (只有 AF / SA 两个目录), 不能再从 model 反推
+    model = lastPart(1:end-1);      % 仅保留给日志用
 
     % ---- phase2 新数据：f09/f10 组实际评测属性 = {01,05,06,07,09,10} ----
     attributes = [1, 5, 6, 7, 9, 10];
@@ -134,7 +130,8 @@ for i_lastPart = 1:length(lastParts)
         end
         
     
-        save_folder=fullfile('AnalyseResults_p',Dtype,scale_type_origin);
+        % 输出路径带 nation: AF 与 SA 的同名组 (f04i/f07i/f08i...) 否则会互相覆盖
+        save_folder=fullfile('AnalyseResults_p',Dtype,scale_type_origin,nation);
     
         % 定义输出目录
         
@@ -325,6 +322,7 @@ for i_lastPart = 1:length(lastParts)
     fprintf('时间差: %s\n', time_diff);
     disp('All attributes and i_groups processed successfully.');
 end
+end   % for i_nat (nation 循环)
 
 %% 辅助函数
 

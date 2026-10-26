@@ -1,15 +1,16 @@
 cd('D:\work\VIVOSkin_phase2\analyze');
 addpath('utils');
 
+NATION = 'AF';          % 'AF' 或 'SA' —— 目录结构 ExpRes\renamed\{nation}\{model}{i/r}\obs_XX
 lastPart = 'f09i';
 Dtype = 'efit_p';
 scale_type = 'unscaled';
 attribute = 1;
 
-source_folder = 'D:\work\VIVOSkin_phase2\ExpRes\renamed\f09i';
+source_folder = fullfile('D:\work\VIVOSkin_phase2\ExpRes\renamed', NATION, lastPart);
 dir_res = findSpecificFiles(source_folder, attribute);
 
-output_folder = fullfile('tmp_prof_out', lastPart, 'non_model', '01Preference');
+output_folder = fullfile('tmp_prof_out', NATION, lastPart, 'non_model', '01Preference');
 if ~exist(output_folder, 'dir'), mkdir(output_folder); end
 
 profile off; clear profile;

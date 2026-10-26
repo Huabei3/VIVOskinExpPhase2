@@ -1,4 +1,4 @@
-function process_data_CAT_plot_sing(dir_res, output_folder, lastPart,Dtype,scale_type)
+function process_data_CAT_plot_sing(dir_res, output_folder, lastPart,Dtype,scale_type,nation_tag)
 %PROCESS_DATA_CAT_PLOT_SING 与 process_data_CAT_p 完全相同，额外为每个 observer 单独画一张散点图
 %
 %   相比 process_data_CAT_p 多出的功能（其余逻辑一行未改）：
@@ -19,6 +19,13 @@ function process_data_CAT_plot_sing(dir_res, output_folder, lastPart,Dtype,scale
 
     % ---- 输出根目录 ----
     PLOT_ROOT = 'D:\work\VIVOSkin_phase2\analyze\singe_obs_plot';
+
+    % nation 标签 (第 6 个入参, 可省略): 有值时图片落到
+    %   singe_obs_plot\{nation}\obs{i_obs}\{model}{i/r}\{attribute_serial}\{scene}.jpg
+    % 因为同一个组名 (f04i/f07i/...) 在 AF 与 SA 下都有数据, 不加 nation 会互相覆盖
+    if nargin < 6 || isempty(nation_tag)
+        nation_tag = '';
+    end
 
     % attribute_serial，如 01Preference（调用方传入的 output_folder 末级目录名）
     [~, attribute_serial] = fileparts(output_folder);
@@ -207,7 +214,11 @@ function process_data_CAT_plot_sing(dir_res, output_folder, lastPart,Dtype,scale
                 % 当前 scene 下该 observer 的评分（长度 = n_pt）
                 score_obs = score_all(i_group:i_group + n_pt - 1, i_obs);
 
-                fig_dir = fullfile(PLOT_ROOT, obs_tag, lastPart, attribute_serial);
+                if isempty(nation_tag)
+                    fig_dir = fullfile(PLOT_ROOT, obs_tag, lastPart, attribute_serial);
+                else
+                    fig_dir = fullfile(PLOT_ROOT, nation_tag, obs_tag, lastPart, attribute_serial);
+                end
                 if ~exist(fig_dir, 'dir')
                     mkdir(fig_dir);
                 end

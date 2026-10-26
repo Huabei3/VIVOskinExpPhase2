@@ -6,9 +6,9 @@ function export_STRESS_intra_by_attribute(source_folder_type)
 %          命令行覆盖 -> export_STRESS_intra_by_attribute('phase1')
 %
 %   源目录由开关 SOURCE_FOLDER_TYPE 决定：
-%     'phase2' -> D:\work\VIVOSkin_phase2\ExpRes\renamed
+%     'phase2' -> D:\work\VIVOSkin_phase2\ExpRes\renamed\{nation}   (nation 见配置区 NATION)
 %                 路径形如 {model}{i/r}\obs_%02d\obs%02d_%02d.csv
-%                 group 自动扫描 DATA_ROOT 下全部子文件夹，observer 固定 obs01..obs05
+%                 group 自动扫描 {nation} 下全部子文件夹，observer 行数按实际 obs_XX 目录决定
 %     'phase1' -> D:\work\VIVOSkin_phase2\ExpRes\phase1_renamed
 %                 只处理 f09i/f09r/f10i/f10r 四个 group，且只取 non_model 分支
 %                 路径形如 {model}{i/r}\non_model\obs_%02d\obs%02d_%02d.csv
@@ -35,6 +35,11 @@ function export_STRESS_intra_by_attribute(source_folder_type)
 
     OUT_DIR = 'D:\work\VIVOSkin_phase2\analyze\single_folder_STRESS';
 
+    % ★ phase2 的 nation 维度：目录结构 renamed\{nation}\{model}{i/r}\obs_XX\obsXX_YY.csv
+    %   一次只算一个 nation —— 同名组（f04i / f07i / ...）在 AF 与 SA 下是不同的人，
+    %   混在一张表里按行号比较会误读
+    NATION = 'AF';                                 % 'AF' 或 'SA'
+
     % attribute 编号(1..10) -> 名称，与 ExpRes\_copy_to_renamed.py 第 26-27 行一致
     ATTR_NAMES = {'Preference', 'Attractiveness', 'Feminine', 'Cooperative', ...
                   'Youth', 'Healthy', 'Fidelity', 'Harmony', 'Fair', 'Ruddy'};
@@ -42,10 +47,11 @@ function export_STRESS_intra_by_attribute(source_folder_type)
 
     switch lower(SOURCE_FOLDER_TYPE)
         case 'phase2'
-            DATA_ROOT   = 'D:\work\VIVOSkin_phase2\ExpRes\renamed';
-            GROUP_NAMES = {};              % {} = 自动扫描 DATA_ROOT 下全部子文件夹
+            DATA_ROOT   = fullfile('D:\work\VIVOSkin_phase2\ExpRes\renamed', NATION);
+            GROUP_NAMES = {};              % {} = 自动扫描 {nation} 下全部组目录
             L2_NAME     = '';              % phase2 无分支层
-            OBS_IDS     = 1:5;             % 固定 obs_01..obs_05（phase2 目录名带下划线）
+            OBS_IDS     = [];              % [] = 按实际 obs_XX 目录动态决定
+                                           %      （AF 每批最多 10 个；SA 只有 5 个）
         case 'phase1'
             DATA_ROOT   = 'D:\work\VIVOSkin_phase2\ExpRes\phase1_renamed';
             GROUP_NAMES = {'f09i', 'f09r', 'f10i', 'f10r'};
@@ -56,8 +62,13 @@ function export_STRESS_intra_by_attribute(source_folder_type)
                   SOURCE_FOLDER_TYPE);
     end
 
-    OUT_XLSX = fullfile(OUT_DIR, sprintf('STRESS_intra_by_attribute_%s.xlsx', ...
-                                         lower(SOURCE_FOLDER_TYPE)));
+    if strcmpi(SOURCE_FOLDER_TYPE, 'phase2')
+        OUT_XLSX = fullfile(OUT_DIR, sprintf('STRESS_intra_by_attribute_%s_%s.xlsx', ...
+                                             lower(SOURCE_FOLDER_TYPE), NATION));
+    else
+        OUT_XLSX = fullfile(OUT_DIR, sprintf('STRESS_intra_by_attribute_%s.xlsx', ...
+                                             lower(SOURCE_FOLDER_TYPE)));
+    end
 
     if exist(OUT_DIR, 'dir') ~= 7
         mkdir(OUT_DIR);
