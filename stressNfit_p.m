@@ -31,11 +31,37 @@ scale_type_origin="unscaled";
 % 同一个组名 (f04i / f07i / ...) 在 AF 和 SA 下可能同时存在, 但 observer 是不同的人,
 % 所以 nation 必须参与寻址, 也必须参与输出路径 (否则同名组的结果会互相覆盖)
 DATA_ROOT = 'D:\work\VIVOSkin_phase2\ExpRes\renamed';
-NATIONS   = {'AF', 'SA'};        % 只想跑一个 nation 就删掉另一个
+NATIONS   = {'AF', 'SA', 'CA', 'AS'};   % 目录不存在的 nation 会自动跳过
+
+% ---- 每个 nation 的属性集合规则 ----
+%   full_models : 这些 model (只写 f/m + 编号, 不带结尾 i/r) 跑 full 属性集
+%   其余 model   : 跑 base 属性集
+%   AF : f09/f10/m09/m10       -> [1 5 6 7 9 10],  {f/m}{01~08}      -> [1 6]
+%   SA : f07/f08/m07/m08       -> [1 5 6 7 9 10],  {f/m}{01~06,09,10} -> [1 6]
+%   CA : {f/m}{01~03}          -> [1 5 6 7 9 10],  {f/m}{04~10}       -> [1 6]
+%   AS : 全部                  -> [1 6]
+ATTR_FULL = [1, 5, 6, 7, 9, 10];
+ATTR_BASE = [1, 6];
+ATTR_RULES = struct( ...
+    'AF', struct('full_models', {{'f09', 'f10', 'm09', 'm10'}}, ...
+                 'full', ATTR_FULL, 'base', ATTR_BASE), ...
+    'SA', struct('full_models', {{'f07', 'f08', 'm07', 'm08'}}, ...
+                 'full', ATTR_FULL, 'base', ATTR_BASE), ...
+    'CA', struct('full_models', {{'f01', 'f02', 'f03'}}, ...
+                 'full', ATTR_FULL, 'base', ATTR_BASE), ...
+    'AS', struct('full_models', {{}}, ...
+                 'full', ATTR_FULL, 'base', ATTR_BASE));
 
 % for i_lastPart = [19]
 for i_nat = 1:numel(NATIONS)
     nation = NATIONS{i_nat};
+    if ~isfield(ATTR_RULES, nation)
+        error('ATTR_RULES 里没有 nation "%s" 的属性规则, 请先在配置区补上', nation);
+    end
+    if ~isfolder(fullfile(DATA_ROOT, nation))
+        fprintf('[跳过] nation %s : 目录不存在 (%s)\n', nation, fullfile(DATA_ROOT, nation));
+        continue
+    end
 for i_lastPart = 1:length(lastParts)
 % for i_lastPart = 1:length(lastParts)
     lastPart = lastParts{i_lastPart};
@@ -66,8 +92,14 @@ for i_lastPart = 1:length(lastParts)
     % 现在 nation 由外层循环给出 (只有 AF / SA 两个目录), 不能再从 model 反推
     model = lastPart(1:end-1);      % 仅保留给日志用
 
-    % ---- phase2 新数据：f09/f10 组实际评测属性 = {01,05,06,07,09,10} ----
-    attributes = [1, 5, 6, 7, 9, 10];
+    % ---- 按 nation + model 决定该组要跑哪些属性 (见配置区 ATTR_RULES) ----
+    attr_rule = ATTR_RULES.(nation);
+    if ismember(model, attr_rule.full_models)
+        attributes = attr_rule.full;
+    else
+        attributes = attr_rule.base;
+    end
+    fprintf('[%s/%s] attributes = [%s]\n', nation, lastPart, num2str(attributes));
 
     % ---- 跳过完全没有数据的 lastPart ----
     % 判据：source_folder 不存在，或存在但没有任何 obs* 文件匹配 attributes 中的属性
