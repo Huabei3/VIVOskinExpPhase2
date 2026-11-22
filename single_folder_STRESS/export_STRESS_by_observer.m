@@ -22,6 +22,8 @@
 %     A = 空   B = 'AVERAGE'   C = 上方所有有限值的均值（NaN 不参与；全 NaN 则留空）
 %
 %   输出: ...\analyze\single_folder_STRESS\STRESS_intra_by_observer_{nation}.xlsx
+%         若 IS_CORRECTED = true，输出改名为 ..._{nation}_c.xlsx，值来自
+%         cal_STRESS_ind_corrected（中心化版），与旧值不可直接比较。
 %
 %   observer 分批，各批做的组不同、且 obs 编号各自独立计数
 %   （obs 编号 -> 人名 的映射已用源文件名 MD5 反查逐一核实）:
@@ -59,6 +61,17 @@ ATTR_NAMES = {'Preference', 'Attractiveness', 'Feminine', 'Cooperative', ...
 n_attr = numel(ATTR_NAMES);
 
 SIDES = {'i', 'r'};
+
+% ★ 算法开关（2026-11-22 新增）
+%   false = 旧算法：cal_STRESS_ind -> STRESS.m（未中心化，与历史 xlsx 完全一致）
+%   true  = 新算法：cal_STRESS_ind_corrected（中心化，去掉评分绝对高低的影响）
+%   两者数值不可比：
+%     旧版 真实被试均值 0.310，随机作答基准 0.345，与评分水平相关 -0.472
+%     新版 真实被试均值 0.918，随机作答基准 0.994，与评分水平相关 +0.175
+%   打开后输出文件名自动加 _c 后缀（STRESS_intra_by_observer_AF_c.xlsx），不会覆盖旧结果，
+%   但 sheet 内的列名仍为 STRESS_intra，含义已变，下游脚本需按文件名区分。
+%   详见 STRESS讨论.md §5 / §7
+IS_CORRECTED = false;
 
 % 每批采集者评过的组（i/r 由 SIDES 展开）；obs 编号含义随批次变化，批次顺序不能调换
 %   BATCH_MODELS.{nation}{b} = 该国第 b 批 observer 评过的组
@@ -144,7 +157,11 @@ here = fileparts(mfilename('fullpath'));       % 本脚本所在目录
 if isempty(here)
     here = pwd;
 end
-OUT_XLSX = fullfile(here, sprintf('STRESS_intra_by_observer_%s.xlsx', NATION));
+if IS_CORRECTED
+    OUT_XLSX = fullfile(here, sprintf('STRESS_intra_by_observer_%s_c.xlsx', NATION));
+else
+    OUT_XLSX = fullfile(here, sprintf('STRESS_intra_by_observer_%s.xlsx', NATION));
+end
 
 addpath(here);                                 % cal_STRESS_ind.m
 addpath(fullfile(fileparts(here), 'utils'));   % mapMatrixValues.m
@@ -207,7 +224,11 @@ for b = 1:numel(BATCHES)
                     end
 
                     try
-                        v = cal_STRESS_ind(csv_path);
+                        if IS_CORRECTED
+                            v = cal_STRESS_ind_corrected(csv_path);
+                        else
+                            v = cal_STRESS_ind(csv_path);
+                        end
                     catch ME
                         warning('计算失败: %s\n  -> %s', csv_path, ME.message);
                         n_fail = n_fail + 1;
