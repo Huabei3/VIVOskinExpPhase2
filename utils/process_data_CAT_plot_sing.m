@@ -152,7 +152,7 @@ function process_data_CAT_plot_sing(dir_res, output_folder, lastPart,Dtype,scale
        
         % load("optimizedD\light_i.mat","CCT_light_old","XYZ_light_old","picnames_old");
         wd65_64 = [94.811, 100.00, 107.304];
-        datai_file = 'D:\work\VIVOSkinExpe\PeggySkinBackup\A_code\C_VIVO_skin_project\A_characterization\display_model\datai_ipv30_phase2_3.mat';
+        datai_file = p2_config().LUT_P2_FILE;   % phase2 数据 => phase2 自己的显示标定
         LUT=load(datai_file);
         XYZw_LUT=LUT.XYZw;
         load(fullfile("optimizedD\backGroundGray", ...

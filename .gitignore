@@ -16,3 +16,5 @@ documents/combined_data1.xlsx
 documents/skinColorofModels/VIVO-skindata-0913.xlsx
 documents/skinColorofModels/已选模特数据汇总1.xlsx
 documents/skinColorofModels/已选模特数据汇总.xlsx
+# exclude Excel lock files (~$name.xlsx) that the !*.xlsx whitelist would let through
+~$*

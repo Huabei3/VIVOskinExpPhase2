@@ -23,16 +23,27 @@
 %
 %   输出: ...\analyze\single_folder_STRESS\STRESS_intra_by_observer_{nation}.xlsx
 %
-%   observer 分三批，各批做的组不同、且 obs 编号各自独立计数
+%   observer 分批，各批做的组不同、且 obs 编号各自独立计数
 %   （obs 编号 -> 人名 的映射已用源文件名 MD5 反查逐一核实）:
-%     batch A : f01 f04 f07 f08 f09 f10
-%     batch B : f03 f06 m07 m08 m09 m10
-%     batch C : f02 f05 m04 m01 m05 m02 m06 m03
-%               （组目录不存在时自动跳过；本批目前只采到 Preference / Healthy 两属性）
+%     AF : 组批 A : f01 f04 f07 f08 f09 f10   <- 人名表第 1 组 (Malvin..Ongama, 10 人)
+%          组批 B : f03 f06 m07 m08 m09 m10   <- 人名表第 2 组 (NIWE..chelsea, 10 人)
+%          组批 C : f02 f05 m04 m01 m05 m02 m06 m03 <- 第 3 组 (atascopy..vanessa, 10 人)
+%     SA : 组批 A : f01 f04 f07 f08 f09 f10
+%          组批 B : f03 f06 m07 m08 m09 m10
+%          组批 C : f02 f05 m01 m02 m03 m04 m05 m06
+%          SA 每个组批配【两组人】（各 5 人），所以人名表有 6 组:
+%            组批 A: Mehak Nazir..ma yi ran (obs1~5) / ASKARI HASAN..SINGH ARVEEN (obs6~10)
+%            组批 B: raz sadia..minahil(obs1~5)/ shabbir..Araiz Nasik        (obs6~10)
+%            组批 C: Memoona..Bani (obs1~5)   / Taha..Kaleem Ahsan            (obs6~10)
+%          后一组人靠 BATCH_SHIFT 的 +5 落到 obs_06..10，与前一组人并存
+%          例外: 组批 A 的 f09/f10 第 2 组人没做(ASKARI 那批只交了 Preference/Healthy,
+%          按"跨组批做错不予采纳"丢掉)，改由组批 C 的第 2 组人 Taha..Kaleem 代做
+%          （组目录不存在或没有 obs_06..10 时会自动跳过）
 %
-%   nation 只改变【人名表】和【obs 根目录】，批次划分与组清单两者共用:
-%     AF : 每批 10 人 -> obs_01..obs_10
-%     SA : batch A/B 各 5 人 -> obs_01..obs_05；batch C 暂空（以后可能补充）
+%   批次划分与人数按 nation 分开（AF 三批 / SA 六批，AF 每批 10 人、SA 每批 5 人），
+%   两边的 BATCH_MODELS.{nation} 与 OBS_SETS.{nation} 长度必须一一对应：
+%     AF -> obs_01..obs_10（三组批互不重叠，全 0）
+%     SA -> obs_01..05（每组批的第 1 组人） / obs_06..10（第 2 组人，+5）
 %
 %   目录结构前提（由 copy_to_renamed.m 生成）:
 %     renamed\{nation}\{model}{i/r}\obs_{i_obs}\obs{i_obs}_{i_attribute}.csv
@@ -49,14 +60,22 @@ n_attr = numel(ATTR_NAMES);
 
 SIDES = {'i', 'r'};
 
-% 三批采集者：obs 编号含义随批次变化，批次顺序不能调换
-%   BATCH_MODELS{b} = 该批 observer 评过的组（i/r 由 SIDES 展开）
-%   名单为空 {} 的批次 (目前只有 SA 的 batch C) 会自动跳过
-BATCH_MODELS = { ...
+% 每批采集者评过的组（i/r 由 SIDES 展开）；obs 编号含义随批次变化，批次顺序不能调换
+%   BATCH_MODELS.{nation}{b} = 该国第 b 批 observer 评过的组
+%   AF 3 批 / SA 6 批，必须与 OBS_SETS.{nation} 的元素个数一一对应（下面有校验）
+%   名字表为空的批次会自动跳过
+BATCH_MODELS = struct();
+BATCH_MODELS.AF = { ...
     {'f01', 'f04', 'f07', 'f08', 'f09', 'f10'}, ...              % batch A
     {'f03', 'f06', 'm07', 'm08', 'm09', 'm10'}, ...              % batch B
     {'f02', 'f05', 'm04', 'm01', 'm05', 'm02', 'm06', 'm03'} };  % batch C
-
+BATCH_MODELS.SA = { ...
+    {'f01', 'f04', 'f07', 'f08', 'f09', 'f10'}, ...               % 组批 A, obs1~5  : Mehak Nazir..ma yi ran
+    {'f03', 'f06', 'm07', 'm08', 'm09', 'm10'}, ...               % 组批 B, obs1~5  : raz sadia..minahil
+    {'f02', 'f05', 'm01', 'm02', 'm03', 'm04', 'm05', 'm06'}, ...  % 组批 C, obs1~5  : Memoona..Bani
+    {'f01', 'f04', 'f07', 'f08','f09', 'f10'}, ...                             % 组批 A, obs6~10 : ASKARI..(没做 f09 f10)
+    {'f03', 'f06', 'm07', 'm08', 'm09', 'm10'}, ...               % 组批 B, obs6~10 : shabbir..Araiz Nasik
+    {'f02', 'f05', 'm01', 'm02', 'm03', 'm04', 'm05', 'm06'} };                                             % 组批 C, obs6~10 : Taha..(+代做 f09 f10)
 % 每个 nation 各自的 observer 名单（顺序即 obs 编号，位置 1 -> obs_01）
 OBS_SETS = struct();
 OBS_SETS.AF = { ...
@@ -68,20 +87,52 @@ OBS_SETS.AF = { ...
     {'atascopy', 'placide', 'Bevin', 'sherlington', 'brian', ...
      'Kirsty', 'noluthando', 'Samara', 'paballo', 'vanessa'} };           % batch C: obs01..10
 OBS_SETS.SA = { ...
-    {'Areeba', 'Alishba', 'Eman', 'Alisha', 'Jenny'}, ...                 % batch A: obs01..05
-    {'raz sadia', 'sarwar malaika', 'meenal babar', 'Arooha', 'minahil'}, ...          % batch B: obs01..05
-    {}};                                                                   % batch C: 暂空
+    {'Mehak Nazir', 'tayyaba', 'Mariam', 'Maryam Ali', 'ma yi ran'}, ...  % obs1~5  组批 A: f04 f01 f07 f09 f08 f10 (原 Areeba..Jenny)
+    {'raz sadia', 'sarwar malaika', 'meenal babar', 'Arooha', 'minahil'}, ...  % obs1~5  组批 B: f06 f03 m07 m09 m08 m10
+    {'Memoona', 'ayesha', 'Amina', 'Pari', 'Bani'}, ...                   % obs1~5  组批 C: f05 f02 m04 m01 m05 m02 m06 m03
+    {'ASKARI HASAN', 'QASIM MUHAMMAD ALI', 'ULLAH SAEED', ...
+     'ALI RAJAB', 'SINGH ARVEEN'}, ...                                    % obs6~10 组批 A: f04 f01 f07 f08
+    {'shabbir Muhammad sufyan', 'RAMZAN MUHAMMAD', 'KHALID MUHAMMAD ALI', ...
+     'ALISYEDHAMMAD', 'Araiz Nasik'}, ...                                 % obs6~10 组批 B: f06 f03 m07 m09 m08 m10
+    {'Taha Abdur Rehman', 'SHOAIB MUHAMMAD', 'TEHSEEN MUHAMMAD FAISAL', ...
+     'AAMISH MUHAMMAD', 'KALEEM AHSAN'} };                                % obs6~10 组批 C + 代做 f09 f10
 
 NATION = upper(strtrim(NATION));
 if ~isfield(OBS_SETS, NATION)
     error('NATION 只能是 AF 或 SA，当前给的是: %s', NATION);
 end
 
+% 批次划分按 nation 分开：BATCH_MODELS.{nation} 与 OBS_SETS.{nation} 必须等长且顺序一致
+bm_models = BATCH_MODELS.(NATION);
+bm_names  = OBS_SETS.(NATION);
+if numel(bm_models) ~= numel(bm_names)
+    error(['NATION=%s 的批次不匹配：BATCH_MODELS.%s 有 %d 批，OBS_SETS.%s 有 %d 批。\n' ...
+           '  BATCH_MODELS 每个元素 = 该批 observer 评过的组；OBS_SETS 每个元素 = 该批 observer 名单；\n' ...
+           '  两者必须一一对应（个数相同、顺序相同）。'], ...
+           NATION, NATION, numel(bm_models), NATION, numel(bm_names));
+end
+
+% obs 目录编号偏移：同一 nation 内若两批评了同一个组，编号会撞车，
+% 给后一批加偏移让两批并存（必须与 copy_to_renamed.m 的 OBS_SHIFT 完全一致）
+BATCH_SHIFT = struct();
+BATCH_SHIFT.AF = [0 0 0];      % AF 三批的组互不重叠 -> 全 0
+% SA 是「3 个组批 × 2 组人」: 前 5 人 obs_01..05, 后 5 人 +5 -> obs_06..10
+%   A: Mehak Nazir..(01-05) / ASKARI..(06-10)
+%   B: raz sadia..(01-05) / shabbir..(06-10)
+%   C: Memoona..(01-05) / Taha..(06-10)
+% 每组批只有这两组人, +5 就够, 组不重叠所以编号可以复用
+BATCH_SHIFT.SA = [0 0 0 5 5 5];
+if ~isfield(BATCH_SHIFT, NATION) || numel(BATCH_SHIFT.(NATION)) ~= numel(bm_names)
+    error('BATCH_SHIFT.%s 的长度必须等于批数 (%d)，不偏移的批写 0', ...
+          NATION, numel(bm_names));
+end
+SHIFT = BATCH_SHIFT.(NATION);
+
 % 注意: 这里不能包一层 {} —— struct() 用 cell 的尺寸决定结构体数组大小,
 %       包一层会退化成 1x1 标量, BATCHES(b).models 取到的是整个 cell-of-cell,
 %       后面 fullfile 得到 cell, exist 就会报"第一个输入必须为字符串标量或字符向量"
-BATCHES = struct('models', BATCH_MODELS, ...
-                 'names',  OBS_SETS.(NATION));   % 1 x 3，字段即各批的组清单 / 人名表
+BATCHES = struct('models', bm_models, ...
+                 'names',  bm_names);   % 1 x n_batch，字段即各批的组清单 / 人名表
 
 OBS_NAME      = [BATCHES.names];                           % 1 x n_obs，按批次拼接
 OBS_PER_BATCH = cellfun(@numel, {BATCHES.names});          % 每批 observer 个数（可为 0）
@@ -146,10 +197,11 @@ for b = 1:numel(BATCHES)
 
             n_used = 0;
             for oi = 1:numel(b_names)
-                obs_dir = fullfile(grp_dir, sprintf('obs_%02d', oi));
+                oi_obs  = oi + SHIFT(b);                   % 目录里的实际 obs 编号 (含批次偏移)
+                obs_dir = fullfile(grp_dir, sprintf('obs_%02d', oi_obs));
 
                 for ai = 1:n_attr
-                    csv_path = fullfile(obs_dir, sprintf('obs%02d_%02d.csv', oi, ai));
+                    csv_path = fullfile(obs_dir, sprintf('obs%02d_%02d.csv', oi_obs, ai));
                     if exist(csv_path, 'file') ~= 2
                         continue;                          % 该 (observer, attribute) 无数据
                     end

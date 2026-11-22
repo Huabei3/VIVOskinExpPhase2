@@ -16,7 +16,10 @@
 %        AF:  A 套 Malvin..Ongama (10 人) / B 套 NIWE..chelsea (10 人) /
 %             C 套 atascopy..vanessa (10 人)
 %        SA:  A 套 Areeba..Jenny (5 人) / B 套 raz sadia..minahil (5 人) /
-%             C 套 暂空 (以后可能补充)
+%             C 套 Memoona..Bani (5 人) / D 套 ASKARI HASAN..SINGH ARVEEN (5 人) /
+%             E 套 shabbir..Araiz Nasik (5 人) / F 套 Taha..Kaleem Ahsan (5 人)
+%        同一 nation 内若两批评了同一个组, 用 OBS_SHIFT.(nation)(b) 给后一批加编号偏移,
+%        否则会写进同一个 obs_XX 目录互相覆盖 (目前 SA 第 5 批评 m07 与第 2 批重叠)
 %      nation 由 observer 人名唯一决定, 所以同一组可以同时有 AF 与 SA 的 obs 编号
 %      (AF 的 obs_01 与 SA 的 obs_01 是两个人, 分别落在 renamed\AF 与 renamed\SA 下)
 %      不区分大小写; 观测到的拼写变体在 OBS_ALIAS 显式登记 (别名 -> 规范名)
@@ -29,6 +32,14 @@
 %   6) 文件名里的 {folder} 必须与 owner 目录同名, 否则记为不一致并跳过
 %      (owner 找不到时退回顶层目录名, 行为与旧版一致)
 %   7) 输出根目录: renamed\{nation}\{group}\obs_{i_obs}\obs{i_obs}_{i_attr}.csv
+%   8) 组批白名单: 每个 nation 的 {model} 分 3 个组批 (GROUP_BATCH), 每个组批只采纳
+%      自己那几组 observer 的数据; 别的组批的人做了同一组 = 做错了 -> 记入
+%      "跨组批跳过" 不予采纳。例外由 ALLOW_OVERRIDE 显式登记
+%      (现阶段: SA 的 f09/f10 第 2 组人空缺, 由第 6 组人 Taha..Kaleem 补做)
+%   9) WRITE_MAP = true 时额外输出 analyze\copy_map_{nation}.xlsx:
+%      每个 sheet = 一个组批; 每行 = model + attribute;
+%      列 = i 侧 obs01..10 + r 侧 obs01..10, 单元格 = 该槽位收的 observer 名
+% -------------------------------------------------------------------------
 % -------------------------------------------------------------------------
 
 close all; clc; clear;
@@ -50,23 +61,72 @@ SCAN_MODE = 'recursive';
 
 CLEAN_OUT = false;      % true = 先清空整个 renamed (危险, 默认不动)
 WRITE_LOG = true;       % true = 报告同时写入 analyze\copy_to_renamed_log.txt
+WRITE_MAP = true;       % true = 同时输出出处映射 analyze\copy_map_{nation}.xlsx
 
 %% 模块 1b: 名单 (按 nation 分开; obs 编号在各 nation 内部独立从 1 计数)
 OBS_SETS = struct();
 OBS_SETS.AF = { ...
-    {'Malvin', 'Jerome', 'moussa', 'viva', 'philippe', ...
-     'Divine', 'uneza', 'DANIELLA', 'Shanly', 'Ongama'}, ...
+    {'Malvin', 'Jerome', 'moussa', 'viva', 'philippe', ...#obs1~5 for f04	f01	f07	f09 f08	f10
+     'Divine', 'uneza', 'DANIELLA', 'Shanly', 'Ongama'}, ...#obs6~10 
     {'NIWE', 'LUKE MARRION MARUFU', 'Balima Miguel', ...
-     'TANATSWA MUKOKANDUKU', 'TANATSWA GWABADA', ...
-     'Mercy', 'Axelle', 'natasha', 'tanya', 'chelsea'}, ...
-    {'atascopy', 'placide', 'Bevin', 'sherlington', 'brian', ...
-     'Kirsty', 'noluthando', 'Samara', 'paballo', 'vanessa'} };
+     'TANATSWA MUKOKANDUKU', 'TANATSWA GWABADA', ...#obs1~5 for f06	f03	m07	m09 m08	m10
+     'Mercy', 'Axelle', 'natasha', 'tanya', 'chelsea'}, ...#obs6~10 
+    {'atascopy', 'placide', 'Bevin', 'sherlington', 'brian', ...#obs1~5 for f05	f02 m04	m01 m05	m02 m06	m03
+     'Kirsty', 'noluthando', 'Samara', 'paballo', 'vanessa'} }; % obs6~10 
+
+
 OBS_SETS.SA = { ...
-    {'Areeba', 'Alishba', 'Eman', 'Alisha', 'Jenny'}, ...
-    {'raz sadia', 'sarwar malaika', 'meenal babar', 'Arooha', 'minahil'}, ...
-    {} };                        % 第 3 套暂空, 以后可能补充
+    {'Mehak Nazir',	'tayyaba',	'Mariam',	'Areeba',	'ma yi ran' }, ...#obs1~5 for f04	f01	f07	f09 f08	f10 in relace of {'Areeba', 'Alishba', 'Eman', 'Alisha', 'Jenny'}
+    {'raz sadia', 'sarwar malaika', 'meenal babar', 'Arooha', 'minahil'}, ...#obs1~5 for f06	f03	m07	m09 m08	m10
+    {'Memoona', 'ayesha', 'Amina', 'Pari', 'Bani'}, ...#obs1~5 for f05	f02 m04	m01 m05	m02 m06	m03
+    {'ASKARI HASAN', 'QASIM MUHAMMAD ALI', 'ULLAH SAEED', 'ALI RAJAB', 'SINGH ARVEEN'}, ...#obs6~10  f04	f01	f07	 f08 f09 f10
+    {'shabbir Muhammad sufyan', 'RAMZAN MUHAMMAD', 'KHALID MUHAMMAD ALI', ...
+     'ALISYEDHAMMAD', 'Araiz Nasik'}, ...#obs6~10 for  f06	 f03	m07	m09 m08	m10
+    {'Taha Abdur Rehman', 'SHOAIB MUHAMMAD', 'TEHSEEN MUHAMMAD FAISAL', ...
+     'AAMISH MUHAMMAD', 'KALEEM AHSAN'} };   %obs6~10   for f05	f02 m04	m01 m05	m02 m06	m03 
 
 NATIONS = fieldnames(OBS_SETS);  % {'AF'; 'SA'}
+
+% obs 编号默认在每批内部从 1 重新计数。若【两批 observer 评了同一个组】，编号会撞到
+% 同一个 obs_XX 目录、后写入的覆盖先写入的。给后一批加偏移即可让两批并存:
+%   OBS_SHIFT.(nation)(b) = 第 b 批的编号偏移 (0 = 不偏移), 长度必须等于该 nation 的批数
+% AF 三批的组互不重叠 -> 全 0
+% SA 是「3 个组批 × 2 组人」, 每组的第 2 组人要 +5 才不会覆盖第 1 组人:
+%   组批 A (f01 f04 f07 f08 f09 f10):  Areeba..  obs_01..05 / ASKARI..  obs_06..10
+%   组批 B (f03 f06 m07 m08 m09 m10):  raz sadia.. obs_01..05 / shabbir.. obs_06..10
+%   组批 C (f02 f05 m01..m06)        :  Memoona..  obs_01..05 / Taha..    obs_06..10
+% 每组批只有这两组人, +5 就够, 组不重叠所以编号可以复用
+OBS_SHIFT = struct();
+OBS_SHIFT.AF = [0 0 0];
+OBS_SHIFT.SA = [0 0 0 5 5 5];
+for ni = 1:numel(NATIONS)
+    nat = NATIONS{ni};
+    if ~isfield(OBS_SHIFT, nat) || numel(OBS_SHIFT.(nat)) ~= numel(OBS_SETS.(nat))
+        error(['OBS_SHIFT.%s 的长度必须等于 OBS_SETS.%s 的批数 (%d)。\n' ...
+               '  每批一个偏移量, 不偏移写 0。'], nat, nat, numel(OBS_SETS.(nat)));
+    end
+end
+
+% ---- 组批: 每个 nation 的 {model} 只有 3 个组批; 每个组批由 OBS_SETS 里的若干组人评 ----
+% 规则: 只采纳「自己组批」的人评的数据; 别的组批的人做了同一组 = 做错了, 不予理会
+% (与 single_folder_STRESS\export_STRESS_by_observer.m 的 BATCH_MODELS 保持一致)
+GROUP_BATCH = struct();
+GROUP_BATCH.AF = { ...
+    {'f01', 'f04', 'f07', 'f08', 'f09', 'f10'}, ...
+    {'f03', 'f06', 'm07', 'm08', 'm09', 'm10'}, ...
+    {'f02', 'f05', 'm04', 'm01', 'm05', 'm02', 'm06', 'm03'} };
+GROUP_BATCH.SA = { ...
+    {'f01', 'f04', 'f07', 'f08', 'f09', 'f10'}, ...
+    {'f03', 'f06', 'm07', 'm08', 'm09', 'm10'}, ...
+    {'f02', 'f05', 'm01', 'm02', 'm03', 'm04', 'm05', 'm06'} };
+
+% 例外表: 组 -> 允许的人名组号 (覆盖默认的「该组批自己的那几组人」)
+%   SA 组批 A 的 f09/f10 没有第 2 组人 (ASKARI 那批只做了 Preference/Healthy),
+%   由组批 C 的第 2 组人 (第 6 组: Taha..Kaleem) 补做 -> 允许 [1 6]
+ALLOW_OVERRIDE = struct();
+ALLOW_OVERRIDE.AF = cell(0, 2);
+ALLOW_OVERRIDE.SA = { 'f09', [1 6]; ...
+                      'f10', [1 6] };
 
 % 目录里实际出现过的拼写变体 -> 规范名 (键已归一化为大写; 规范名必须出现在名单里)
 OBS_ALIAS = { ...
@@ -80,6 +140,8 @@ OBS_ALIAS = { ...
     'SAMAR',               'Samara'; ...
     'PABA;;O',             'paballo'; ...
     'VANESSSA',            'vanessa'; ...
+    % --- AF 第 2 批: natasha 的采集端文件名写作 tasha (2026-10-17 同一轮作答) ---
+    'TASHA',               'natasha'; ...
     % --- SA: 名单写「名+姓」, 采集端文件名只有「名」, 必须显式登记 ---
     'SADIA',               'raz sadia'; ...
     'SARWAR',              'sarwar malaika'; ...
@@ -87,21 +149,43 @@ OBS_ALIAS = { ...
     'AROOHQ',              'Arooha'; ...
     'SADIA SADIA',         'raz sadia'; ...   % 录入时把名字写了两遍
     'SADIA S',             'raz sadia'; ...   % 多打一个空格
-    'MEENA',               'meenal babar'};   % 少一个 l
+    'MEENA',               'meenal babar'; ...% 少一个 l
+    % --- SA 第 5 批 (2026-11-06 起): 文件名只写名字里的一段 ---
+    'SUFYAN',              'shabbir Muhammad sufyan'; ...
+    'RAMZAN',              'RAMZAN MUHAMMAD'; ...
+    'ALI',                 'KHALID MUHAMMAD ALI'; ...
+    'ALIALI',              'KHALID MUHAMMAD ALI'; ...  % 名字打了两遍
+    'ALISYED',             'ALISYEDHAMMAD'; ...
+    'ARAIZ',               'Araiz Nasik'; ...          % 预防: 目前还没有她的文件
+    % --- SA 第 6 批: 文件用的是第二个名字 ---
+    'TAHA',                'Taha Abdur Rehman'; ...
+    'SHOAIB',              'SHOAIB MUHAMMAD'; ...
+    'FAISAL',              'TEHSEEN MUHAMMAD FAISAL'; ...
+    'AAMISH',              'AAMISH MUHAMMAD'; ...
+    'AHSAN',               'KALEEM AHSAN'; ...
+    % --- 录入端手误 (同一人的错拼) ---
+    'FAIASL',              'TEHSEEN MUHAMMAD FAISAL'; ...
+    'MEMONA',              'Memoona'; ...
+    'SHERLINGOTON',        'sherlington'; ...
+    % --- SA 组批 A 第 1 组 (2026-11-16 起代替 Areeba..Jenny), 文件只写名 ---
+    'MARYAM',              'Maryam Ali'};   % 注意: 与第 3 位 'Mariam' 是两个人
 
 ATTRS = {'Preference', 'Attractiveness', 'Feminine', 'Cooperative', 'Youth', ...
          'Healthy', 'Fidelity', 'Harmony', 'Fair', 'Ruddy'};
 nAttr = numel(ATTRS);
 
-% 每个 nation 的最大 obs 编号 (报告里完整性矩阵的行数)
+% 每个 nation 的最大 obs 编号 (报告里完整性矩阵的行数; 含批次偏移)
 N_OBS_BY_NATION = struct();
 for ni = 1:numel(NATIONS)
-    N_OBS_BY_NATION.(NATIONS{ni}) = max([cellfun(@numel, OBS_SETS.(NATIONS{ni})), 0]);
+    nat = NATIONS{ni};
+    N_OBS_BY_NATION.(nat) = max([cellfun(@numel, OBS_SETS.(nat)) + OBS_SHIFT.(nat), 0]);
 end
 
 %% ---------- 模块 2: 索引表 ----------
-OBS_INDEX  = containers.Map('KeyType', 'char', 'ValueType', 'double');  % 归一化名 -> i_obs
+OBS_INDEX  = containers.Map('KeyType', 'char', 'ValueType', 'double');  % 归一化名 -> 批内 i_obs
 OBS_NATION = containers.Map('KeyType', 'char', 'ValueType', 'char');    % 归一化名 -> nation
+OBS_BATCH  = containers.Map('KeyType', 'char', 'ValueType', 'double');  % 归一化名 -> 批号 (取偏移用)
+OBS_DISPLAY = containers.Map('KeyType', 'char', 'ValueType', 'char');   % 归一化名 -> 名单里的写法
 for ni = 1:numel(NATIONS)
     nat  = NATIONS{ni};
     sets = OBS_SETS.(nat);
@@ -111,23 +195,53 @@ for ni = 1:numel(NATIONS)
             if isKey(OBS_INDEX, nm)
                 error('observer "%s" 在多个 nation 名单中重复出现, 请检查 OBS_SETS', nm);
             end
-            OBS_INDEX(nm)  = ii;
-            OBS_NATION(nm) = nat;
+            OBS_INDEX(nm)   = ii;
+            OBS_NATION(nm)  = nat;
+            OBS_BATCH(nm)   = si;
+            OBS_DISPLAY(nm) = sets{si}{ii};
         end
     end
 end
-% 拼写变体: 归一到规范名后沿用规范名的 nation / 编号
+% 拼写变体: 归一到规范名后沿用规范名的 nation / 编号 / 批号 / 显示名
 for r = 1:size(OBS_ALIAS, 1)
     canon = norm_name(OBS_ALIAS{r, 2});
     if ~isKey(OBS_INDEX, canon)
         error('OBS_ALIAS 第 %d 行: 规范名 "%s" 不在 OBS_SETS 名单里', r, OBS_ALIAS{r, 2});
     end
-    OBS_INDEX(OBS_ALIAS{r, 1})  = OBS_INDEX(canon);
-    OBS_NATION(OBS_ALIAS{r, 1}) = OBS_NATION(canon);
+    OBS_INDEX(OBS_ALIAS{r, 1})   = OBS_INDEX(canon);
+    OBS_NATION(OBS_ALIAS{r, 1})  = OBS_NATION(canon);
+    OBS_BATCH(OBS_ALIAS{r, 1})   = OBS_BATCH(canon);
+    OBS_DISPLAY(OBS_ALIAS{r, 1}) = OBS_DISPLAY(canon);
 end
 ATTR_INDEX = containers.Map('KeyType', 'char', 'ValueType', 'double');
 for a = 1:nAttr
     ATTR_INDEX(lower(ATTRS{a})) = a;
+end
+
+% 组 -> 允许的人名组号 (默认该组批自己的那几组人; 再套 ALLOW_OVERRIDE 的例外)
+ALLOW = struct();
+N_SLOTS = struct();     % 每个 nation 一个组批里最大 obs 号 (写映射表用)
+for ni = 1:numel(NATIONS)
+    nat   = NATIONS{ni};
+    nSet  = numel(OBS_SETS.(nat));
+    nB    = numel(GROUP_BATCH.(nat));
+    if mod(nSet, nB) ~= 0
+        error('%s: OBS_SETS 有 %d 组人, GROUP_BATCH 有 %d 个组批, 无法均分', nat, nSet, nB);
+    end
+    perB = nSet / nB;                       % 每个组批配几组人 (AF=1, SA=2)
+    m = containers.Map('KeyType', 'char', 'ValueType', 'any');
+    for b = 1:nB
+        ok = b + (0:perB - 1) * nB;         % SA 组批 A -> [1 4], B -> [2 5], C -> [3 6]
+        for gi = 1:numel(GROUP_BATCH.(nat){b})
+            m(GROUP_BATCH.(nat){b}{gi}) = ok;
+        end
+    end
+    ov = ALLOW_OVERRIDE.(nat);
+    for r = 1:size(ov, 1)
+        m(ov{r, 1}) = ov{r, 2};
+    end
+    ALLOW.(nat)   = m;
+    N_SLOTS.(nat) = max([cellfun(@numel, OBS_SETS.(nat)) + OBS_SHIFT.(nat), 0]);
 end
 
 %% ---------- 模块 3: 日志句柄 ----------
@@ -157,9 +271,9 @@ FILE_PAT   = '^(?<obs>.+?)_(?<attr>[^_]+)_(?<ts>\d{8}_\d{6})_result_(?<fld>.+)\.
 folders = dir(EXP_DIR);
 folders = folders([folders.isdir] & ~ismember({folders.name}, {'.', '..'}));
 
-gName = {}; M = []; pPath = {}; pName = {}; pTs = {};
+gName = {}; M = []; pPath = {}; pName = {}; pTs = {}; pObs = {};
 skippedSmall = {}; unknownObs = {}; unknownAtr = {}; badName = {};
-fldMismatch = {}; nSpec = 0; nAll = 0; nNested = 0;
+fldMismatch = {}; crossBatch = {}; nSpec = 0; nAll = 0; nNested = 0;
 
 for fi = 1:numel(folders)
     fname = folders(fi).name;
@@ -216,20 +330,32 @@ for fi = 1:numel(folders)
             unknownAtr{end + 1} = [group, '\', tk.attr]; %#ok<SAGROW>
             continue;
         end
+
+        % ---- 组批白名单: 只采纳「自己组批」的人评的数据 ----
+        nat = OBS_NATION(nm);                  % 人名同时决定 nation
+        if isKey(ALLOW.(nat), group)
+            okSets = ALLOW.(nat)(group);
+            if ~ismember(OBS_BATCH(nm), okSets)
+                crossBatch{end + 1} = sprintf('%s\\%s | %s (%s) 属第 %d 组人 -> 该组只收第 %s 组', ...
+                    nat, group, tk.obs, tk.attr, OBS_BATCH(nm), mat2str(okSets)); %#ok<SAGROW>
+                continue;
+            end
+        end
+
         if flist(k).bytes < MIN_BYTES
             skippedSmall{end + 1} = sprintf('%s\\%-50s %6dB', group, rel, flist(k).bytes); %#ok<SAGROW>
             continue;
         end
 
-        iObs = OBS_INDEX(nm);                  % 人名 -> 该 nation 内的 obs 编号
         iAtr = ATTR_INDEX(lower(tk.attr));
-        nat  = OBS_NATION(nm);                 % 人名同时决定 nation
+        iObs = OBS_INDEX(nm) + OBS_SHIFT.(nat)(OBS_BATCH(nm));   % 批内编号 + 该批偏移
         nIdx = find(strcmp(NATIONS, nat), 1);
         % M 列: [nation 序号, group 序号, obs, attr, 时间戳, 字节数]
         M(end + 1, :) = [nIdx, gIdx, iObs, iAtr, datenum(tk.ts, 'yyyymmdd_HHMMSS'), flist(k).bytes]; %#ok<SAGROW>
         pPath{end + 1} = full;    %#ok<SAGROW>
         pName{end + 1} = rel;     %#ok<SAGROW>
         pTs{end + 1}   = tk.ts;   %#ok<SAGROW>
+        pObs{end + 1}  = OBS_DISPLAY(nm);   %#ok<SAGROW>
     end
 end
 say(fids, '扫描到 csv: %d 个 (其中落在你给的规则两处位置的 %d 个)\n', nAll, nSpec);
@@ -242,6 +368,7 @@ if isempty(M)
     agg(fids, fldMismatch, '文件名 folder 与所在文件夹不一致');
     agg(fids, badName,     '文件名无法解析');
     agg(fids, skippedSmall, sprintf('文件 < %d B', MIN_BYTES), true);
+    list(fids, crossBatch, '跳过: 跨组批 (人名不属于该组的组批, 视为做错不予采纳)');
     if WRITE_LOG, fclose(fid); end
     return;
 end
@@ -347,6 +474,46 @@ for i = 1:nKey
     copyfile(pPath{win(i)}, fullfile(dstDir, sprintf('obs%02d_%02d.csv', o, a)));
 end
 
+%% ---------- 模块 6.5: 出处映射 xlsx (每个 nation 一个文件, 每个 sheet = 一个组批) ----------
+% 每行: model | attribute | 之后 2*N_SLOTS 列 = i 侧 obs01..NN + r 侧 obs01..NN
+% 单元格 = 该槽位最终收的是哪位 observer 的源文件 (空 = 没有)
+if WRITE_MAP
+    PMAP = containers.Map('KeyType', 'char', 'ValueType', 'any');
+    for i = 1:nKey
+        g    = gName{Ms(i, 2)};
+        key  = sprintf('%s|%s|%d|%s', NATIONS{Ms(i, 1)}, g(1:end - 1), Ms(i, 4), g(end));
+        if ~isKey(PMAP, key), PMAP(key) = cell(1, 20); end
+        c = PMAP(key);
+        c{Ms(i, 3)} = pObs{win(i)};
+        PMAP(key) = c;
+    end
+    for ni = 1:numel(NATIONS)
+        nat   = NATIONS{ni};
+        nSlot = N_SLOTS.(nat);
+        mapX  = fullfile(fileparts(mfilename('fullpath')), sprintf('copy_map_%s.xlsx', nat));
+        if exist(mapX, 'file') == 2, delete(mapX); end
+        for b = 1:numel(GROUP_BATCH.(nat))
+            rows = [{'model', 'attribute'}, compose('%di', 1:nSlot), compose('%dr', 1:nSlot)];
+            for mi = 1:numel(GROUP_BATCH.(nat){b})
+                model = GROUP_BATCH.(nat){b}{mi};
+                for a = 1:nAttr
+                    row = {model, ATTRS{a}};
+                    for side = {'i', 'r'}
+                        key = sprintf('%s|%s|%d|%s', nat, model, a, side{1});
+                        c = repmat({''}, 1, nSlot);
+                        if isKey(PMAP, key), c = PMAP(key); end
+                        row = [row, c]; %#ok<AGROW>
+                    end
+                    rows(end + 1, :) = row; %#ok<AGROW>
+                end
+            end
+            writecell(rows, mapX, 'Sheet', sprintf('batch_%s', char(64 + b)));
+        end
+        say(fids, '\n出处映射已写入: %s  (%d 个 sheet: batch_A..batch_%s)\n', ...
+            mapX, numel(GROUP_BATCH.(nat)), char(64 + numel(GROUP_BATCH.(nat))));
+    end
+end
+
 %% ---------- 模块 7: 报告 ----------
 say(fids, '\n%s\n复制结果: 共 %d 个文件\n%s\n', repmat('=', 1, 72), nKey, repmat('=', 1, 72));
 for ni = 1:numel(NATIONS)
@@ -399,6 +566,7 @@ agg(fids, unknownAtr, '未映射的 attribute 名称');
 agg(fids, skippedSmall, sprintf('跳过: 文件 < %d B', MIN_BYTES), true);
 agg(fids, badName, '跳过: 文件名不符合 {obs}_{attr}_{ts}_result_{folder}.csv');
 agg(fids, fldMismatch, '跳过: 文件名里的 folder 与归属目录 (最近的 com.example.*p2) 不一致');
+list(fids, crossBatch, '跳过: 跨组批 (人名不属于该组的组批, 视为做错不予采纳)');
 
 say(fids, '\n--- INFO: 重复文件取舍 (STRESS_intra 更小者胜) ---\n');
 say(fids, '  实际计算 STRESS_intra 的 csv 数: %d (S=NaN 表示该文件没有重复评分)\n', nEval);
@@ -484,5 +652,22 @@ u = u(ord);
 say(fids, '  共 %d 条, %d 个不同名称\n', numel(items), numel(u));
 for i = 1:numel(u)
     say(fids, '    %-30s %5d\n', u{i}, cnt(i));
+end
+end
+
+function list(fids, items, title, maxShow)
+% 逐条打印 (不聚合), 超过 maxShow 条时截断
+if nargin < 4, maxShow = 120; end
+say(fids, '\n--- %s ---\n', title);
+if isempty(items)
+    say(fids, '  (无)\n');
+    return;
+end
+say(fids, '  共 %d 条:\n', numel(items));
+for i = 1:min(numel(items), maxShow)
+    say(fids, '    %s\n', items{i});
+end
+if numel(items) > maxShow
+    say(fids, '    ... 其余 %d 条省略\n', numel(items) - maxShow);
 end
 end

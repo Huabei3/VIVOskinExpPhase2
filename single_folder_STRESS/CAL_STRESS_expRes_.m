@@ -101,7 +101,7 @@ function CAL_STRESS_expRes(source_folder)
             % 筛选和移动文件夹
             if ~isempty(stress_data)
                 % 排序
-                [sorted_stress, idx] = sort([stress_data.stress], 'descend');
+                [8, idx] = sort([stress_data.stress], 'descend');
                 sorted_data = stress_data(idx);
                 
                 % 筛选需要移动的文件夹

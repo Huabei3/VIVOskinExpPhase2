@@ -15,6 +15,7 @@ if nargin < 4
 
     
     rmax = -inf;
+    afinal = [];   % 预置: ydata 为常数时 corr 返回 NaN, 可能 100 次都不赋值
 
     for t = 1:100
         a0 = [rand,rand,rand,rand,rand,rand];
@@ -29,6 +30,9 @@ if nargin < 4
             a(2)*(xdata(:,3)-a(5)).^2+a(3)*(xdata(:,2)-a(4)).*(xdata(:,3)-a(5)))>=0);
    
         r = corr(y,ydata);
+        if isnan(r)   % 拟合退化成常数预测 (或 ydata 无方差) 时相关系数无定义
+            continue
+        end
         if r >= rmax
             rmax = r;
             afinal = a;
@@ -36,6 +40,14 @@ if nargin < 4
         if rmax>0.9
             break
         end
+    end
+
+    if isempty(afinal)   % 100 次初值全部退化 => 无法拟合, 返回空
+        par = [];
+        r = NaN;
+        y = nan(size(ydata));
+        fprintf('correlation coefficient is NaN (degenerate data)\n');
+        return
     end
 
     par = afinal;
@@ -59,6 +71,7 @@ else
 
     f = @(a,xdata)(a(8)*exp(a(1)*sqrt((xdata(:,1)-colorcenter(1)).^2+a(2)*(xdata(:,2)-colorcenter(2)).^2+a(3)*(xdata(:,3)-colorcenter(3)).^2+a(4)*(xdata(:,2)-colorcenter(2)).*(xdata(:,3)-colorcenter(3))))+a(9)).*(((xdata(:,1)-colorcenter(1)).^2+a(2)*(xdata(:,2)-colorcenter(2)).^2+a(3)*(xdata(:,3)-colorcenter(3)).^2+a(4)*(xdata(:,2)-colorcenter(2)).*(xdata(:,3)-colorcenter(3)))>=0);
     rmax = 0;
+    afinal = [];   % 预置: ydata 为常数时 corr 返回 NaN, 可能 100 次都不赋值
 
     for t = 1:100
         a0 = [-rand,rand,rand,rand,rand,rand,rand,rand,rand];
@@ -72,6 +85,9 @@ else
         (xdata(:,2)-colorcenter(2)).*(xdata(:,3)-colorcenter(3)))>=0);
 
         r = corr(y,ydata);
+        if isnan(r)   % 拟合退化成常数预测 (或 ydata 无方差) 时相关系数无定义
+            continue
+        end
         if r >= rmax
             rmax = r;
             afinal = a;
@@ -79,6 +95,14 @@ else
         if rmax>0.9
             break
         end
+    end
+
+    if isempty(afinal)   % 100 次初值全部退化 => 无法拟合, 返回空
+        par = [];
+        r = NaN;
+        y = nan(size(ydata));
+        fprintf('correlation coefficient is NaN (degenerate data)\n');
+        return
     end
 
     par = afinal;
